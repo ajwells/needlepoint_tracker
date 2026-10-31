@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Needlepoint Tracker</title>
+  <meta name="description" content="Track needlepoint threads and canvases.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23b5476b'/%3E%3Cpath d='M8 8h4v4H8zM14 14h4v4h-4zM20 20h4v4h-4zM20 8h4v4h-4zM8 20h4v4H8z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M8 8h4v4H8zM14 14h4v4h-4zM20 20h4v4h-4zM20 8h4v4h-4zM8 20h4v4H8z"/></svg>
+        </span>
+        <span class="brand-name">Needlepoint Tracker</span>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="Sections">
+        <button class="tab" role="tab" data-tab="threads">Threads <span class="tab-count" id="count-threads">0</span></button>
+        <button class="tab" role="tab" data-tab="canvases">Canvases <span class="tab-count" id="count-canvases">0</span></button>
+      </nav>
+
+      <div class="topbar-actions">
+        <button class="btn ghost sm" id="btn-export" title="Download a backup of all data">
+          <span data-icon="download"></span><span class="hide-sm">Export</span>
+        </button>
+        <button class="btn ghost sm" id="btn-import" title="Restore data from a backup file">
+          <span data-icon="upload"></span><span class="hide-sm">Import</span>
+        </button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- THREADS -->
+    <section id="view-threads" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Threads</h1>
+          <p class="muted" id="threads-summary"></p>
+        </div>
+        <button class="btn primary" data-new="thread"><span data-icon="plus"></span>Add thread</button>
+      </div>
+
+      <div class="toolbar">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input type="search" id="thread-search" placeholder="Search brand, color, code, material…" autocomplete="off">
+        </label>
+        <select id="thread-sort" class="select" aria-label="Sort threads">
+          <option value="brand">Sort: Brand &amp; code</option>
+          <option value="color">Sort: Color family</option>
+          <option value="amount">Sort: Least left</option>
+          <option value="recent">Sort: Recently added</option>
+        </select>
+      </div>
+      <div class="family-filter" id="family-filter" role="group" aria-label="Filter by color family"></div>
+
+      <div class="grid" id="thread-grid"></div>
+    </section>
+
+    <!-- CANVASES -->
+    <section id="view-canvases" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h1>Canvases</h1>
+          <p class="muted" id="canvases-summary"></p>
+        </div>
+        <button class="btn primary" data-new="canvas"><span data-icon="plus"></span>Add canvas</button>
+      </div>
+
+      <div class="toolbar">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input type="search" id="canvas-search" placeholder="Search name, designer, shop…" autocomplete="off">
+        </label>
+      </div>
+      <div class="family-filter" id="status-filter" role="group" aria-label="Filter by status"></div>
+
+      <div class="grid grid-canvas" id="canvas-grid"></div>
+    </section>
+  </main>
+
+  <dialog id="modal" class="modal" aria-labelledby="modal-title"></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

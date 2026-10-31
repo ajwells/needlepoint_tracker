@@ -1,0 +1,11 @@
+{
+  "name": "needlepoint_tracker",
+  "version": "1.0.0",
+  "description": "Track needlepoint threads and canvases in the browser.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "convert-csv": "node scripts/csv-to-backup.mjs \"Needlepoint - Canvases.csv\""
+  },
+  "private": true
+}
