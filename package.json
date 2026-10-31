@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "convert-csv": "node scripts/csv-to-backup.mjs \"Needlepoint - Canvases.csv\""
+    "convert-csv": "node scripts/csv-to-backup.mjs \"Needlepoint - Canvases.csv\"",
+    "convert-wishlist": "node scripts/csv-to-backup.mjs \"Needlepoint - Wish List.csv\""
   },
   "private": true
 }

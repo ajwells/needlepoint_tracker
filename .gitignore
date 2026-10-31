@@ -2,3 +2,8 @@
 scripts/*
 Needlepoint - Canvases.csv
 Needlepoint - Canvases.import.json
+Needlepoint - Wish List.csv
+Needlepoint - Wish List.import.json
+
+# Temporary personal-data downloads
+public/downloads/
