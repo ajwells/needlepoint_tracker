@@ -517,3 +517,6 @@ body.signed-out .guest-banner { display: none; }
 /* Empty login fields are not errors; the server reports what is missing. */
 .auth-card .field input:invalid { border-color: var(--border); }
 .auth-card .field input:invalid:focus { border-color: var(--accent); }
+
+/* Stock filter sits just above the color filter. */
+.family-filter.stock-filter { margin-bottom: 10px; }

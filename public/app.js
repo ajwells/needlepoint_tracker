@@ -221,6 +221,7 @@
     tab: 'threads',
     threadQuery: '',
     threadFamily: '',
+    threadStock: '', // '' all, 'in' in stash, 'out' out of stock
     threadSort: 'brand',
     canvasQuery: '',
     canvasStatus: '',
@@ -338,11 +339,25 @@
       chip('', 'All colors') + COLOR_FAMILIES.map(([name, sw]) => chip(name, familyLabel(name), sw)).join('');
   }
 
+  /** Out of stock only when the amount is explicitly 0; an empty amount means "have it, not measured". */
+  const isOutOfStock = (t) => t.amountLeft === 0;
+  const STOCK_FILTERS = [['', 'All threads'], ['in', 'In stash'], ['out', 'Out of stock']];
+
+  function renderStockFilter() {
+    const out = state.threads.filter(isOutOfStock).length;
+    const counts = { '': state.threads.length, in: state.threads.length - out, out };
+    $('#stock-filter').innerHTML = STOCK_FILTERS.map(([value, label]) =>
+      `<button class="chip ${state.threadStock === value ? 'active' : ''}" data-stock="${value}" aria-pressed="${state.threadStock === value}">${
+        esc(label)} <span class="muted">${counts[value]}</span></button>`).join('');
+  }
+
   function renderThreads() {
+    renderStockFilter();
     renderFamilyFilter();
     const usage = buildUsage();
     const q = state.threadQuery.trim().toLowerCase();
     let list = state.threads.filter((t) => {
+      if (state.threadStock && isOutOfStock(t) !== (state.threadStock === 'out')) return false;
       if (state.threadFamily && t.colorFamily !== state.threadFamily) return false;
       if (!q) return true;
       const hay = [t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
@@ -376,7 +391,7 @@
     if (!state.threads.length) {
       grid.innerHTML = emptyState('spool', 'No threads yet', 'Add your first thread to start building your stash.', 'thread', 'Add thread');
     } else if (!list.length) {
-      grid.innerHTML = emptyState('search', 'No matches', 'Try a different search or color filter.');
+      grid.innerHTML = emptyState('search', 'No matches', 'Try a different search, stock or color filter.');
     } else {
       grid.innerHTML = list.map((t) => threadCard(t, usageFor(usage, t.id))).join('');
     }
@@ -992,6 +1007,8 @@
     if (oc) { openCanvasForm(oc.dataset.openCanvas); return; }
     const fam = e.target.closest('[data-family]');
     if (fam) { state.threadFamily = fam.dataset.family; renderThreads(); return; }
+    const stock = e.target.closest('[data-stock]');
+    if (stock) { state.threadStock = stock.dataset.stock; renderThreads(); return; }
     const st = e.target.closest('[data-status]');
     if (st) {
       state.canvasStatus = st.dataset.status;
