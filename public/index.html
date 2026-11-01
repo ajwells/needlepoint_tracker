@@ -24,9 +24,22 @@
       </nav>
 
       <div class="topbar-actions">
-        <button class="btn ghost sm" id="btn-export" title="Download a backup of all data">
-          <span data-icon="download"></span><span class="hide-sm">Export</span>
-        </button>
+        <div class="menu-wrap">
+          <button class="btn ghost sm" id="btn-export" title="Export your data" aria-haspopup="true" aria-expanded="false" aria-controls="export-menu">
+            <span data-icon="download"></span><span class="hide-sm">Export</span>
+          </button>
+          <div class="menu" id="export-menu" hidden>
+            <button type="button" data-export="json">
+              <strong>Backup (JSON)</strong><span>Everything, including photos. Use this with Import.</span>
+            </button>
+            <button type="button" data-export="threads-csv">
+              <strong>Threads (CSV)</strong><span>A spreadsheet of your threads. No photos.</span>
+            </button>
+            <button type="button" data-export="canvases-csv">
+              <strong>Canvases (CSV)</strong><span>A spreadsheet of your canvases and their thread lists. No photos.</span>
+            </button>
+          </div>
+        </div>
         <button class="btn ghost sm" id="btn-import" title="Restore data from a backup file">
           <span data-icon="upload"></span><span class="hide-sm">Import</span>
         </button>

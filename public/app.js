@@ -715,9 +715,13 @@
       ${rowActions(r.threadId)}
     </div>`;
   }
+  /** Strands in a finished cord: strands × bundles per row; an empty bundle count means one bundle. */
+  const cordingTotal = (rows) => rows.reduce((sum, r) => sum + (r.strands || 0) * (r.bundles ?? 1), 0);
+
   function cordingRowHtml(r = {}) {
     return `<div class="row" data-row="cording">
-      ${cell('Strands', `<input name="strands" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.strands)}">`)}
+      ${cell('Strands', `<input name="strands" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.strands)}" aria-label="Strands per bundle">`)}
+      ${cell('Bundles', `<input name="bundles" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.bundles)}" placeholder="1">`)}
       ${cell('Linked thread', `<select name="threadId">${threadOptions(r.threadId)}</select>`, 'wide')}
       ${rowActions(r.threadId)}
     </div>`;
@@ -795,9 +799,10 @@
           <div class="section-head"><h3>Cording</h3>
             <button type="button" class="btn ghost sm" data-add-row="cording" data-edit-only>${icon('plus')}Add cording</button></div>
           <div class="rows cording-rows">
-            <div class="rows-head"><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
+            <div class="rows-head"><span>Strands</span><span>Bundles</span><span>Linked thread</span><span></span><span></span></div>
             <div class="rows" data-rows="cording">${c.cording.map(cordingRowHtml).join('')}</div>
           </div>
+          <p class="cording-total" data-cording-total></p>
         </div>
 
         <div class="section">
@@ -808,6 +813,7 @@
       ${modalFoot(!!id, 'canvas')}
     `, { wide: true });
     updateRowsEmpty();
+    updateCordingTotal();
     setEditing(edit);
   }
 
@@ -827,6 +833,25 @@
     }
   }
 
+  /** Read the cording rows currently in the form. */
+  function formCordingRows() {
+    const val = (row, name) => row.querySelector(`[name="${name}"]`).value;
+    return $$('[data-rows="cording"] .row', modal).map((row) => ({
+      strands: intOrNull(val(row, 'strands')),
+      bundles: intOrNull(val(row, 'bundles')),
+      threadId: val(row, 'threadId') || null,
+    }));
+  }
+
+  function updateCordingTotal() {
+    const el = $('[data-cording-total]', modal);
+    if (!el) return;
+    const rows = formCordingRows().filter((r) => r.strands != null);
+    el.hidden = !rows.length;
+    el.innerHTML = `Total cording size: <strong>${plural(cordingTotal(rows), 'strand')}</strong>
+      <span class="muted">(strands × bundles${rows.some((r) => r.bundles == null) ? '; empty bundles count as 1' : ''})</span>`;
+  }
+
   async function saveCanvas(fd) {
     const existing = form.id ? canvasById(form.id) : null;
     const rowVal = (row, name) => row.querySelector(`[name="${name}"]`).value;
@@ -839,9 +864,7 @@
         threadId: rowVal(row, 'threadId') || null,
       }))
       .filter((r) => r.colorDescription || r.itemDescription || r.stitchType || r.strands != null || r.threadId);
-    const cording = $$('[data-rows="cording"] .row', modal)
-      .map((row) => ({ strands: intOrNull(rowVal(row, 'strands')), threadId: rowVal(row, 'threadId') || null }))
-      .filter((r) => r.strands != null || r.threadId);
+    const cording = formCordingRows().filter((r) => r.strands != null || r.bundles != null || r.threadId);
     const price = numOrNull(fd.get('price'));
 
     const c = {
@@ -914,6 +937,7 @@
       t.closest('.row').remove();
       form.dirty = true;
       updateRowsEmpty();
+      updateCordingTotal();
     } else if (t.matches('[data-open-linked]')) {
       const id = t.closest('.row').querySelector('[name="threadId"]').value;
       if (id) openThreadForm(id);
@@ -921,7 +945,10 @@
     else if (t.matches('[data-delete]')) onDelete();
   });
 
-  modal.addEventListener('input', () => { if (form) form.dirty = true; });
+  modal.addEventListener('input', (e) => {
+    if (form) form.dirty = true;
+    if (e.target.closest('[data-rows="cording"]')) updateCordingTotal();
+  });
   modal.addEventListener('change', async (e) => {
     if (!form) return;
     form.dirty = true;
@@ -1037,17 +1064,117 @@
   // ---------------------------------------------------------------------------
   // Backup: export / import
   // ---------------------------------------------------------------------------
-  $('#btn-export').addEventListener('click', () => {
-    const data = { app: 'needlepoint-tracker', version: 1, exportedAt: new Date().toISOString(), threads: state.threads, canvases: state.canvases };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  function downloadFile(content, type, filename) {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `needlepoint-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.href = URL.createObjectURL(new Blob([content], { type }));
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('Backup downloaded');
+  }
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  /**
+   * Build CSV text that opens cleanly in Excel / Google Sheets:
+   * quoted where needed, CRLF line endings, a BOM so Excel reads UTF-8,
+   * and text starting with = + - @ prefixed with ' so spreadsheets don't run it as a formula.
+   */
+  function toCsv(header, rows) {
+    const cell = (v) => {
+      if (v === null || v === undefined) return '';
+      let s = String(v);
+      if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    return '﻿' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+  }
+  const csvDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
+  const threadRef = (id) => {
+    const t = id && threadById(id);
+    return t ? [t.brand, t.code ? `#${t.code}` : '', t.color, t.dyeLot ? `(lot ${t.dyeLot})` : ''].filter(Boolean).join(' ') : '';
+  };
+
+  function threadsCsv() {
+    const usage = buildUsage();
+    const header = ['Brand', 'Material', 'Color', 'Code', 'Dye lot', 'Color family', 'Thread sizes',
+      'Amount left', 'Amount unit', 'In stock', 'Canvases used in', 'Added', 'Updated'];
+    const rows = [...state.threads].sort(compareThreads).map((t) => [
+      t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily ? familyLabel(t.colorFamily) : '', sizesLabel(t),
+      t.amountLeft, t.amountLeft == null ? '' : t.amountUnit === 'percent' ? '% of skein/card' : 'yards',
+      isOutOfStock(t) ? 'No' : 'Yes',
+      usageFor(usage, t.id).map(({ canvas }) => canvas.name || 'Untitled canvas').join('; '),
+      csvDate(t.createdAt), csvDate(t.updatedAt),
+    ]);
+    return toCsv(header, rows);
+  }
+
+  function canvasesCsv() {
+    const header = ['Name', 'Status', 'Designer', 'Needlepoint shop', 'Shop website', 'Mesh size', 'Date purchased',
+      'Price', 'Year finished', 'Threads', 'Cording', 'Cording total strands', 'Notes', 'Added', 'Updated'];
+    const strands = (n) => (n != null ? `${n} strand${n === 1 ? '' : 's'}` : '');
+    const rows = [...state.canvases]
+      .sort((a, b) => STATUS_KEYS.indexOf(a.status) - STATUS_KEYS.indexOf(b.status) || (a.name || '').localeCompare(b.name || ''))
+      .map((c) => [
+        c.name, STATUS_LABEL[c.status], c.designer, c.shopName, c.shopUrl, c.meshSize ? `${c.meshSize} mesh` : '',
+        c.datePurchased, c.price != null ? c.price.toFixed(2) : '', c.yearFinished,
+        // One line per thread row inside the cell: "Dark green: holly leaves, basketweave, 2 strands - DMC #890 Green"
+        c.threads.map((r) => {
+          const label = [r.colorDescription, r.itemDescription].filter(Boolean).join(': ');
+          const detail = [r.stitchType, strands(r.strands)].filter(Boolean).join(', ');
+          return [[label, detail].filter(Boolean).join(', '), threadRef(r.threadId)].filter(Boolean).join(' - ');
+        }).filter(Boolean).join('\n'),
+        c.cording.map((r) => [
+          [r.bundles != null ? `${plural(r.bundles, 'bundle')} of` : '', strands(r.strands)].filter(Boolean).join(' '),
+          threadRef(r.threadId),
+        ].filter(Boolean).join(' - ')).filter(Boolean).join('\n'),
+        c.cording.some((r) => r.strands != null) ? cordingTotal(c.cording) : '',
+        c.notes, csvDate(c.createdAt), csvDate(c.updatedAt),
+      ]);
+    return toCsv(header, rows);
+  }
+
+  const EXPORTS = {
+    json: () => {
+      const data = { app: 'needlepoint-tracker', version: 1, exportedAt: new Date().toISOString(), threads: state.threads, canvases: state.canvases };
+      downloadFile(JSON.stringify(data), 'application/json', `needlepoint-backup-${today()}.json`);
+      toast('Backup downloaded');
+    },
+    'threads-csv': () => {
+      downloadFile(threadsCsv(), 'text/csv;charset=utf-8', `needlepoint-threads-${today()}.csv`);
+      toast(`Exported ${plural(state.threads.length, 'thread')} to CSV`);
+    },
+    'canvases-csv': () => {
+      downloadFile(canvasesCsv(), 'text/csv;charset=utf-8', `needlepoint-canvases-${today()}.csv`);
+      toast(`Exported ${plural(state.canvases.length, 'canvas', 'canvases')} to CSV`);
+    },
+  };
+
+  const exportMenu = $('#export-menu');
+  function setExportMenu(open) {
+    exportMenu.hidden = !open;
+    $('#btn-export').setAttribute('aria-expanded', String(open));
+    exportMenu.style.setProperty('--menu-top', `${$('#btn-export').getBoundingClientRect().bottom + 6}px`);
+    if (open) $('button', exportMenu).focus();
+  }
+  $('#btn-export').addEventListener('click', (e) => {
+    e.stopPropagation();
+    setExportMenu(exportMenu.hidden);
+  });
+  exportMenu.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-export]');
+    if (!b) return;
+    setExportMenu(false);
+    EXPORTS[b.dataset.export]();
+  });
+  document.addEventListener('click', (e) => {
+    if (!exportMenu.hidden && !exportMenu.contains(e.target)) setExportMenu(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !exportMenu.hidden) {
+      setExportMenu(false);
+      $('#btn-export').focus();
+    }
   });
 
   $('#btn-import').addEventListener('click', () => $('#import-file').click());
