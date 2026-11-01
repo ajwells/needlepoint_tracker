@@ -335,11 +335,9 @@ svg.icon { width: 18px; height: 18px; flex: none; }
   .step::before { top: 13px; }
 }
 
-.url-row { display: flex; gap: 6px; align-items: center; }
 .amount-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .amount-row .input-adorn { flex: 0 1 180px; min-width: 120px; }
 .hint { font-size: 12.5px; color: var(--muted); }
-.url-row input { flex: 1; }
 
 .family-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .family-picker label { position: relative; }

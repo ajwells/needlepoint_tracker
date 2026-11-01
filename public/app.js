@@ -94,12 +94,6 @@
     const [y, m, d] = iso.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   };
-  const normalizeUrl = (u) => {
-    u = str(u);
-    if (!u) return '';
-    return /^[a-z][a-z0-9+.-]*:/i.test(u) ? u : `https://${u}`;
-  };
-  const safeHref = (u) => (/^https?:\/\//i.test(u) ? u : '');
   const plural = (n, word, pl = `${word}s`) => `${n} ${n === 1 ? word : pl}`;
 
   function toast(msg) {
@@ -893,12 +887,6 @@
               </div>
             </div>
             ${field('Needlepoint shop', `<input name="shopName" value="${v('shopName')}" placeholder="Shop name" autocomplete="off">`)}
-            <label class="field"><span class="label">Shop website</span>
-              <div class="url-row">
-                <input name="shopUrl" type="text" inputmode="url" value="${v('shopUrl')}" placeholder="e.g. shopname.com" autocomplete="off">
-                ${safeHref(c.shopUrl) ? `<a class="icon-btn" href="${esc(c.shopUrl)}" target="_blank" rel="noopener noreferrer" title="Visit shop" aria-label="Visit shop">${icon('external')}</a>` : ''}
-              </div>
-            </label>
             ${field('Finish type', `<input name="finishType" value="${v('finishType')}" placeholder="e.g. ornament, pillow, framed" autocomplete="off">`)}
             ${field('Gifted to', `<input name="giftedTo" value="${v('giftedTo')}" placeholder="e.g. Mom" autocomplete="off">
               <span class="hint" data-edit-only>Filling this in marks the canvas as gifted.</span>`)}
@@ -1010,7 +998,6 @@
       finishedPicture: form.images.finishedPicture || null,
       designer: str(fd.get('designer')),
       shopName: str(fd.get('shopName')),
-      shopUrl: normalizeUrl(fd.get('shopUrl')),
       meshSize: intOrNull(fd.get('meshSize')),
       finishType: str(fd.get('finishType')),
       giftedTo: str(fd.get('giftedTo')),
@@ -1261,13 +1248,13 @@
   }
 
   function canvasesCsv() {
-    const header = ['Name', 'Status', 'Designer', 'Needlepoint shop', 'Shop website', 'Mesh size', 'Date purchased',
+    const header = ['Name', 'Status', 'Designer', 'Needlepoint shop', 'Mesh size', 'Date purchased',
       'Price', 'Year finished', 'Finish type', 'Gifted', 'Gifted to', 'Threads', 'Cording', 'Cording total strands', 'Notes', 'Added', 'Updated'];
     const strands = (n) => (n != null ? `${n} strand${n === 1 ? '' : 's'}` : '');
     const rows = [...state.canvases]
       .sort((a, b) => STATUS_KEYS.indexOf(a.status) - STATUS_KEYS.indexOf(b.status) || (a.name || '').localeCompare(b.name || ''))
       .map((c) => [
-        c.name, STATUS_LABEL[c.status], c.designer, c.shopName, c.shopUrl, c.meshSize ? `${c.meshSize} mesh` : '',
+        c.name, STATUS_LABEL[c.status], c.designer, c.shopName, c.meshSize ? `${c.meshSize} mesh` : '',
         c.datePurchased, c.price != null ? c.price.toFixed(2) : '', c.yearFinished,
         c.finishType, isGifted(c) ? 'Yes' : 'No', c.giftedTo,
         // One line per thread row inside the cell: "Dark green: holly leaves, basketweave, 2 strands - DMC #890 Green"
