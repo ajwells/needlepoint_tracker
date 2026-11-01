@@ -467,7 +467,7 @@ body.signed-out .topbar, body.signed-out main { display: none; }
 /* ---------- Read-only view (before pressing Edit) ---------- */
 .modal.viewing [data-edit-only], .modal:not(.viewing) [data-view-only] { display: none !important; }
 .viewing .field input:not([type="radio"]):not([type="checkbox"]):not([type="file"]),
-.viewing .field select, .viewing .field textarea, .viewing .cell input, .viewing .cell select {
+.viewing .field select, .viewing .field textarea, .viewing .cell input:not([type="checkbox"]):not([type="radio"]), .viewing .cell select {
   background: var(--surface-2); border-color: transparent; box-shadow: none;
   color: var(--text); -webkit-text-fill-color: var(--text); opacity: 1; cursor: default;
 }
@@ -576,7 +576,7 @@ body.signed-out .guest-banner { display: none; }
 .modal.viewing.list-table .row .cell-label { display: none; }
 .modal.viewing.list-table .row .cell.wide { grid-column: auto; }
 .modal.viewing.list-table .row .row-actions { display: contents; }
-.modal.viewing.list-table .cell input, .modal.viewing.list-table .cell select {
+.modal.viewing.list-table .cell input:not([type="checkbox"]), .modal.viewing.list-table .cell select {
   background: transparent; padding: 9px 0; border-radius: 0; text-overflow: ellipsis;
 }
 .modal.viewing.list-table .rows-empty { border-radius: 0; }
@@ -586,3 +586,27 @@ body.signed-out .guest-banner { display: none; }
 .card-media .corner .badge.gifted { color: var(--accent); }
 .badge.gifted svg { width: 12px; height: 12px; }
 .modal.viewing.list-table .rows-head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Dye lots (thread form) ---------- */
+.lots { display: flex; flex-direction: column; gap: 8px; }
+.lot-rows { display: flex; flex-direction: column; gap: 8px; }
+.lot-head, .lot-row { display: grid; grid-template-columns: 1fr 1fr 1.2fr 34px; gap: 8px; align-items: center; }
+.lot-head { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 0 2px; }
+.lot-row .cell { display: flex; flex-direction: column; min-width: 0; }
+.lot-row .cell-label { display: none; }
+.lot-total { margin-top: 10px; font-size: 14px; }
+.lot-total strong { font-weight: 650; }
+.section > .hint { display: block; margin-top: 8px; }
+@media (max-width: 520px) {
+  .lot-head, .lot-row { grid-template-columns: 1fr .9fr 1.1fr 34px; gap: 6px; }
+}
+
+/* ---------- Dye lots used by a canvas row ---------- */
+.linked-cell { gap: 6px; }
+.lot-picker { gap: 5px; }
+.lot-picker:empty { display: none; }
+.lot-picker .chip { font-size: 12px; padding: 3px 9px; }
+.lot-none { font-size: 12.5px; color: var(--muted); }
+/* Read-only: only the ticked lots; nothing at all when none are ticked. */
+.viewing .lot-picker:not(:has(input:checked)) { display: none; }
+.menu button.danger strong { color: var(--danger); }

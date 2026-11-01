@@ -67,10 +67,28 @@
   const currency = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
   const fmtYards = (n) => `${+Number(n).toFixed(2)} yd`;
   const fmtNum = (n) => `${+Number(n).toFixed(2)}`;
-  /** Amount left is either yards or a percentage of a skein/card (may exceed 100%). */
+  /**
+   * Each thread has a list of dye lots: { id, dyeLot, amountLeft, amountUnit }.
+   * Amount left is either yards or a percentage of a skein/card (may exceed 100%).
+   */
   const AMOUNT_UNITS = { yards: { label: 'Yards', suffix: 'yd' }, percent: { label: '% of skein/card', suffix: '%' } };
-  const fmtAmount = (t) =>
-    t.amountLeft == null ? '' : t.amountUnit === 'percent' ? `${fmtNum(t.amountLeft)}%` : fmtYards(t.amountLeft);
+  const fmtLotAmount = (l) =>
+    l.amountLeft == null ? '' : l.amountUnit === 'percent' ? `${fmtNum(l.amountLeft)}%` : fmtYards(l.amountLeft);
+  const lotLabel = (l) => (l.dyeLot ? `Lot ${l.dyeLot}` : 'No lot number');
+  /** Amount left summed across a thread's lots, per unit; null where no lot in that unit has an amount. */
+  function threadTotals(t) {
+    const out = { yards: null, percent: null };
+    for (const l of t.lots || []) {
+      if (l.amountLeft == null) continue;
+      const u = l.amountUnit === 'percent' ? 'percent' : 'yards';
+      out[u] = (out[u] || 0) + l.amountLeft;
+    }
+    return out;
+  }
+  const fmtTotals = (t) => {
+    const x = threadTotals(t);
+    return [x.yards != null ? fmtYards(x.yards) : '', x.percent != null ? `${fmtNum(x.percent)}%` : ''].filter(Boolean).join(' + ');
+  };
   const fmtDate = (iso) => {
     if (!iso) return '';
     const [y, m, d] = iso.split('-').map(Number);
@@ -240,13 +258,25 @@
    * - code / dye lot saved as numbers before they became text (codes like "C-109", lots like "512B")
    * - a single numeric `size` (e.g. Perle #5) before sizes became 13 / 18 / strandable:
    *   the number is a product size, so it moves into the material ("Pearl cotton #5")
+   * - a single dye lot + amount before threads had a list of lots: becomes a one-lot list.
+   *   Its id is derived from the thread id so it stays the same on every load until the thread is re-saved.
    */
   function normalizeThread(t) {
-    const { yardsLeft, size, ...rest } = t;
-    const out = { ...rest, code: textOrEmpty(rest.code), dyeLot: textOrEmpty(rest.dyeLot) };
-    if ('yardsLeft' in t) {
-      out.amountLeft = rest.amountLeft ?? yardsLeft ?? null;
-      out.amountUnit = rest.amountUnit || 'yards';
+    const { yardsLeft, size, dyeLot, amountLeft, amountUnit, ...rest } = t;
+    const out = { ...rest, code: textOrEmpty(rest.code) };
+    const unitOf = (u) => (u === 'percent' ? 'percent' : 'yards');
+    const amountOf = (n) => (typeof n === 'number' && Number.isFinite(n) ? n : null);
+    if (Array.isArray(rest.lots)) {
+      out.lots = rest.lots.filter((l) => l && typeof l === 'object').map((l, i) => ({
+        id: textOrEmpty(l.id) || `${t.id}-lot${i}`,
+        dyeLot: textOrEmpty(l.dyeLot),
+        amountLeft: amountOf(l.amountLeft),
+        amountUnit: unitOf(l.amountUnit),
+      }));
+    } else {
+      const lot = textOrEmpty(dyeLot);
+      const amount = amountOf(amountLeft ?? yardsLeft);
+      out.lots = lot || amount != null ? [{ id: `${t.id}-lot`, dyeLot: lot, amountLeft: amount, amountUnit: unitOf(amountUnit) }] : [];
     }
     const valid = THREAD_SIZES.map(([k]) => k);
     out.sizes = Array.isArray(rest.sizes) ? valid.filter((k) => rest.sizes.map(String).includes(k)) : [];
@@ -280,12 +310,23 @@
         if (!byCanvas.has(c.id)) byCanvas.set(c.id, { canvas: c, roles: [] });
         if (role) byCanvas.get(c.id).roles.push(role);
       };
-      c.threads.forEach((r) => add(r.threadId, r.itemDescription || r.colorDescription || 'Thread'));
-      c.cording.forEach((r) => add(r.threadId, 'Cording'));
+      // Role text names the dye lots used, e.g. "holly leaves (lot 493, 484)".
+      const withLots = (role, r) => {
+        const names = rowLots(r).map((l) => l.dyeLot).filter(Boolean);
+        return names.length ? `${role} (lot ${names.join(', ')})` : role;
+      };
+      c.threads.forEach((r) => add(r.threadId, withLots(r.itemDescription || r.colorDescription || 'Thread', r)));
+      c.cording.forEach((r) => add(r.threadId, withLots('Cording', r)));
     }
     return map;
   }
   const usageFor = (usage, threadId) => [...(usage.get(threadId)?.values() || [])];
+  /** The linked thread's lots that a canvas row uses (ids of deleted lots are skipped). */
+  function rowLots(r) {
+    const t = r.threadId && threadById(r.threadId);
+    if (!t || !Array.isArray(r.dyeLots)) return [];
+    return t.lots.filter((l) => r.dyeLots.includes(l.id));
+  }
 
   function threadName(t) {
     return [t.brand, t.color].filter(Boolean).join(' ') || 'Untitled thread';
@@ -296,7 +337,8 @@
     if (t.color) s += ` · ${t.color}`;
     const extra = [t.material, sizesLabel(t)].filter(Boolean).join(', ');
     if (extra) s += ` (${extra})`;
-    if (t.amountLeft != null) s += ` — ${fmtAmount(t)} left`;
+    const left = fmtTotals(t);
+    if (left) s += ` — ${left} left`;
     return s;
   }
   function compareThreads(a, b) {
@@ -340,8 +382,16 @@
       chip('', 'All colors') + COLOR_FAMILIES.map(([name, sw]) => chip(name, familyLabel(name), sw)).join('');
   }
 
-  /** Out of stock only when the amount is explicitly 0; an empty amount means "have it, not measured". */
-  const isOutOfStock = (t) => t.amountLeft === 0;
+  /**
+   * Out of stock only when every dye lot is explicitly at 0. An empty amount means "have it, not measured",
+   * and a thread with no lots listed counts as in stock.
+   */
+  const isOutOfStock = (t) => t.lots.length > 0 && t.lots.every((l) => l.amountLeft === 0);
+  /** Sort key for "Least left": yards before percentages (they can't be compared), then smallest first. */
+  const amountSortKey = (t) => {
+    const x = threadTotals(t);
+    return x.yards != null ? [0, x.yards] : x.percent != null ? [1, x.percent] : null;
+  };
   const STOCK_FILTERS = [['', 'All threads'], ['in', 'In stash'], ['out', 'Out of stock']];
 
   function renderStockFilter() {
@@ -361,7 +411,7 @@
       if (state.threadStock && isOutOfStock(t) !== (state.threadStock === 'out')) return false;
       if (state.threadFamily && t.colorFamily !== state.threadFamily) return false;
       if (!q) return true;
-      const hay = [t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
+      const hay = [t.brand, t.material, t.color, t.code, ...t.lots.map((l) => l.dyeLot), t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
         .join(' ')
         .toLowerCase();
       return q.split(/\s+/).every((w) => hay.includes(w));
@@ -369,18 +419,15 @@
     const sorters = {
       brand: compareThreads,
       color: (a, b) => familyIndex(a.colorFamily) - familyIndex(b.colorFamily) || compareThreads(a, b),
-      // Yards and percentages can't be compared directly, so group by unit, then least first.
-      amount: (a, b) =>
-        (a.amountLeft == null) - (b.amountLeft == null) ||
-        (a.amountUnit === 'percent') - (b.amountUnit === 'percent') ||
-        (a.amountLeft ?? 0) - (b.amountLeft ?? 0) ||
-        compareThreads(a, b),
+      amount: (a, b) => {
+        const ka = amountSortKey(a), kb = amountSortKey(b);
+        return (!ka - !kb) || (ka && kb && (ka[0] - kb[0] || ka[1] - kb[1])) || compareThreads(a, b);
+      },
       recent: (a, b) => (b.createdAt || 0) - (a.createdAt || 0),
     };
     list.sort(sorters[state.threadSort] || compareThreads);
 
-    const sum = (unit) =>
-      state.threads.filter((t) => (t.amountUnit === 'percent') === (unit === 'percent')).reduce((s, t) => s + (t.amountLeft || 0), 0);
+    const sum = (unit) => state.threads.reduce((s, t) => s + (threadTotals(t)[unit] || 0), 0);
     const yards = sum('yards');
     const skeins = sum('percent') / 100;
     const onHand = [yards ? fmtYards(yards) : '', skeins ? `${fmtNum(skeins)} skeins/cards` : ''].filter(Boolean).join(' + ');
@@ -408,7 +455,8 @@
     const meta = [
       t.colorFamily ? `<span class="badge"><span class="dot" style="--sw:${sw}"></span>${esc(familyLabel(t.colorFamily))}</span>` : '',
       ...(t.sizes || []).map((s) => `<span class="badge">${esc(THREAD_SIZE_LABEL[s])}</span>`),
-      t.amountLeft != null ? `<span class="badge accent yards" title="Amount left">${fmtAmount(t)}${t.amountUnit === 'percent' ? ' of skein' : ''}</span>` : '',
+      fmtTotals(t) ? `<span class="badge accent yards" title="Amount left across all dye lots">${fmtTotals(t)}</span>` : '',
+      t.lots.length > 1 ? `<span class="badge" title="${esc(t.lots.map(lotLabel).join(', '))}">${t.lots.length} lots</span>` : '',
       used.length ? `<span class="badge">${icon('canvas').replace('class="icon"', 'class="icon" style="width:12px;height:12px"')}${plural(used.length, 'canvas', 'canvases')}</span>` : '',
     ].join('');
     const sub = [t.color, t.material].filter(Boolean).join(' · ');
@@ -603,15 +651,36 @@
   }
 
   // ---- Thread form ----
-  const YARDS_HINT = 'Yards remaining.';
-  const PERCENT_HINT = 'Percent of a full skein or card. Use more than 100% for extras, e.g. 250% = 2½ skeins.';
+  const AMOUNT_HINT = 'Amount left is in yards, or a percentage of a full skein/card (more than 100% for extras, e.g. 250% = 2½ skeins). '
+    + "Leave it empty if you haven't measured; 0 means that lot is used up.";
+
+  function lotRowHtml(l = {}) {
+    const unit = l.amountUnit === 'percent' ? 'percent' : 'yards';
+    return `<div class="lot-row" data-lot-id="${esc(l.id || uid())}">
+      <label class="cell"><span class="cell-label">Dye lot</span>
+        <input name="lotDyeLot" value="${esc(l.dyeLot)}" placeholder="e.g. 512B" autocomplete="off" aria-label="Dye lot"></label>
+      <label class="cell"><span class="cell-label">Amount left</span>
+        <input name="lotAmount" type="number" inputmode="decimal" min="0" step="any" value="${esc(l.amountLeft)}" placeholder="Not measured" aria-label="Amount left"></label>
+      <label class="cell"><span class="cell-label">Unit</span>
+        <select name="lotUnit" aria-label="Unit">${Object.entries(AMOUNT_UNITS).map(([k, u]) =>
+          `<option value="${k}" ${unit === k ? 'selected' : ''}>${u.label}</option>`).join('')}</select></label>
+      <button type="button" class="icon-btn" data-remove-lot data-edit-only title="Remove dye lot" aria-label="Remove dye lot">${icon('close')}</button>
+    </div>`;
+  }
+  function updateLotsEmpty() {
+    const rows = $('[data-lot-rows]', modal);
+    if (!rows) return;
+    const has = !!rows.querySelector('.lot-row');
+    $('[data-lots-head]', modal).hidden = !has;
+    $('[data-lots-empty]', modal).hidden = has;
+  }
+
   function openThreadForm(id, { edit = !id } = {}) {
     if (modal.open && !confirmDiscard()) return;
-    const t = id ? threadById(id) : {};
+    const t = id ? threadById(id) : { lots: [] };
     if (id && !t) return;
     form = { kind: 'thread', id: id || null, title: threadName(t), images: { picture: t.picture || null }, dirty: false };
     const v = (k) => esc(t[k] ?? '');
-    const unit = t.amountUnit === 'percent' ? 'percent' : 'yards';
 
     const familyPicker = `<div class="family-picker" role="radiogroup" aria-label="Color family">
       ${COLOR_FAMILIES.map(([name, sw]) => `<label>
@@ -649,18 +718,19 @@
                 ${THREAD_SIZES.map(([k, label]) => `<label><input type="checkbox" name="sizes" value="${k}" ${(t.sizes || []).includes(k) ? 'checked' : ''}><span class="chip">${label}</span></label>`).join('')}
               </div>
             </div>
-            ${field('Dye lot', `<input name="dyeLot" value="${v('dyeLot')}" placeholder="e.g. 512B" autocomplete="off">`)}
-            <div class="field span-2"><span class="label">Amount left</span>
-              <div class="amount-row">
-                <div class="input-adorn"><input name="amountLeft" class="has-suffix" type="number" inputmode="decimal" min="0" step="any" value="${v('amountLeft')}" placeholder="0" aria-label="Amount left"><span class="suffix" data-amount-suffix>${AMOUNT_UNITS[unit].suffix}</span></div>
-                <div class="segmented" role="radiogroup" aria-label="Amount unit">
-                  ${Object.entries(AMOUNT_UNITS).map(([k, u]) => `<label><input type="radio" name="amountUnit" value="${k}" ${unit === k ? 'checked' : ''}>${u.label}</label>`).join('')}
-                </div>
-              </div>
-              <span class="hint" data-edit-only>${unit === 'percent' ? PERCENT_HINT : YARDS_HINT}</span>
-            </div>
             <div class="field span-all"><span class="label">Color family</span>${familyPicker}</div>
           </div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Dye lots</h3>
+            <button type="button" class="btn ghost sm" data-add-lot data-edit-only>${icon('plus')}Add dye lot</button></div>
+          <div class="lots">
+            <div class="lot-head" data-lots-head><span>Dye lot</span><span>Amount left</span><span>Unit</span><span></span></div>
+            <div class="lot-rows" data-lot-rows>${t.lots.map(lotRowHtml).join('')}</div>
+            <div class="rows-empty" data-lots-empty>No dye lots yet.</div>
+          </div>
+          ${t.lots.length ? `<p class="lot-total" data-view-only>Total left: <strong>${esc(fmtTotals(t) || 'not measured')}</strong></p>` : ''}
+          <p class="hint" data-edit-only>${AMOUNT_HINT}</p>
         </div>
         <div class="section">
           <h3>Canvases used in</h3>
@@ -669,6 +739,7 @@
       </div>
       ${modalFoot(!!id, 'thread')}
     `);
+    updateLotsEmpty();
     setEditing(edit);
   }
 
@@ -684,10 +755,15 @@
       colorFamily: fd.get('colorFamily') || '',
       color: str(fd.get('color')),
       code: str(fd.get('code')),
-      dyeLot: str(fd.get('dyeLot')),
       picture: form.images.picture || null,
-      amountLeft: numOrNull(fd.get('amountLeft')),
-      amountUnit: fd.get('amountUnit') === 'percent' ? 'percent' : 'yards',
+      lots: $$('[data-lot-rows] .lot-row', modal)
+        .map((row) => ({
+          id: row.dataset.lotId,
+          dyeLot: str($('[name="lotDyeLot"]', row).value),
+          amountLeft: numOrNull($('[name="lotAmount"]', row).value),
+          amountUnit: $('[name="lotUnit"]', row).value === 'percent' ? 'percent' : 'yards',
+        }))
+        .filter((l) => l.dyeLot || l.amountLeft != null),
     };
     await dbWrite(['threads'], (s) => s('threads').put(t));
     const i = state.threads.findIndex((x) => x.id === t.id);
@@ -705,7 +781,7 @@
     const touched = [];
     for (const c of state.canvases) {
       let changed = false;
-      const unlink = (r) => (r.threadId === id ? ((changed = true), { ...r, threadId: null }) : r);
+      const unlink = (r) => (r.threadId === id ? ((changed = true), { ...r, threadId: null, dyeLots: [] }) : r);
       const next = { ...c, threads: c.threads.map(unlink), cording: c.cording.map(unlink) };
       if (changed) touched.push(next);
     }
@@ -727,6 +803,20 @@
   }
 
   const cell = (label, inner, cls = '') => `<label class="cell ${cls}"><span class="cell-label">${label}</span>${inner}</label>`;
+
+  /** Checkbox chips for the linked thread's dye lots; any number can be ticked. */
+  function lotPickerHtml(threadId, selected = []) {
+    const t = threadId && threadById(threadId);
+    if (!t) return '';
+    if (!t.lots.length) return '<span class="lot-none">This thread has no dye lots listed.</span>';
+    return t.lots.map((l) => `<label><input type="checkbox" name="rowLot" value="${esc(l.id)}" ${selected.includes(l.id) ? 'checked' : ''}>
+      <span class="chip">${esc(lotLabel(l))}${l.amountLeft != null ? ` <span class="muted">${esc(fmtLotAmount(l))}</span>` : ''}</span></label>`).join('');
+  }
+  /** "Linked thread" cell: thread dropdown plus the dye lots used. A div, not a label, since it holds several controls. */
+  const linkedCell = (r) => `<div class="cell wide linked-cell"><span class="cell-label">Linked thread &amp; dye lots</span>
+      <select name="threadId" aria-label="Linked thread">${threadOptions(r.threadId)}</select>
+      <div class="family-picker lot-picker" role="group" aria-label="Dye lots used" data-lot-picker>${lotPickerHtml(r.threadId, r.dyeLots || [])}</div>
+    </div>`;
   const rowActions = (threadId) => `<div class="row-actions">
       <button type="button" class="icon-btn" data-open-linked title="Open linked thread" aria-label="Open linked thread" ${threadId ? '' : 'disabled'}>${icon('external')}</button>
       <button type="button" class="icon-btn" data-remove-row data-edit-only title="Remove row" aria-label="Remove row">${icon('close')}</button>
@@ -738,7 +828,7 @@
       ${cell('Item description', `<input name="itemDescription" value="${esc(r.itemDescription)}" placeholder="e.g. holly leaves">`)}
       ${cell('Specialty stitch type', `<input name="stitchType" value="${esc(r.stitchType)}" placeholder="e.g. French knots">`)}
       ${cell('Strands', `<input name="strands" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.strands)}">`)}
-      ${cell('Linked thread', `<select name="threadId">${threadOptions(r.threadId)}</select>`, 'wide')}
+      ${linkedCell(r)}
       ${rowActions(r.threadId)}
     </div>`;
   }
@@ -749,7 +839,7 @@
     return `<div class="row" data-row="cording">
       ${cell('Strands', `<input name="strands" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.strands)}" aria-label="Strands per bundle">`)}
       ${cell('Bundles', `<input name="bundles" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.bundles)}" placeholder="1">`)}
-      ${cell('Linked thread', `<select name="threadId">${threadOptions(r.threadId)}</select>`, 'wide')}
+      ${linkedCell(r)}
       ${rowActions(r.threadId)}
     </div>`;
   }
@@ -824,7 +914,7 @@
             <button type="button" class="btn ghost sm" data-add-row="thread" data-edit-only>${icon('plus')}Add thread</button></div>
           ${noThreadsHint}
           <div class="rows thread-rows">
-            <div class="rows-head"><span>Color description</span><span>Item description</span><span>Specialty stitch type</span><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
+            <div class="rows-head"><span>Color description</span><span>Item description</span><span>Specialty stitch type</span><span>Strands</span><span>Linked thread &amp; dye lots</span><span></span><span></span></div>
             <div class="rows" data-rows="thread">${c.threads.map(threadRowHtml).join('')}</div>
           </div>
         </div>
@@ -833,7 +923,7 @@
           <div class="section-head"><h3>Cording</h3>
             <button type="button" class="btn ghost sm" data-add-row="cording" data-edit-only>${icon('plus')}Add cording</button></div>
           <div class="rows cording-rows">
-            <div class="rows-head"><span>Strands</span><span>Bundles</span><span>Linked thread</span><span></span><span></span></div>
+            <div class="rows-head"><span>Strands</span><span>Bundles</span><span>Linked thread &amp; dye lots</span><span></span><span></span></div>
             <div class="rows" data-rows="cording">${c.cording.map(cordingRowHtml).join('')}</div>
           </div>
           <p class="cording-total" data-cording-total></p>
@@ -868,6 +958,9 @@
     }
   }
 
+  /** Ids of the dye lots ticked in a canvas row (only lots of the currently linked thread are shown). */
+  const rowDyeLots = (row) => $$('[name="rowLot"]:checked', row).map((i) => i.value);
+
   /** Read the cording rows currently in the form. */
   function formCordingRows() {
     const val = (row, name) => row.querySelector(`[name="${name}"]`).value;
@@ -875,6 +968,7 @@
       strands: intOrNull(val(row, 'strands')),
       bundles: intOrNull(val(row, 'bundles')),
       threadId: val(row, 'threadId') || null,
+      dyeLots: rowDyeLots(row),
     }));
   }
 
@@ -897,6 +991,7 @@
         stitchType: str(rowVal(row, 'stitchType')),
         strands: intOrNull(rowVal(row, 'strands')),
         threadId: rowVal(row, 'threadId') || null,
+        dyeLots: rowDyeLots(row),
       }))
       .filter((r) => r.colorDescription || r.itemDescription || r.stitchType || r.strands != null || r.threadId);
     const cording = formCordingRows().filter((r) => r.strands != null || r.bundles != null || r.threadId);
@@ -973,6 +1068,18 @@
       form.dirty = true;
       updateRowsEmpty();
       rows.lastElementChild.querySelector('input, select').focus();
+    } else if (t.matches('[data-add-lot]')) {
+      const rows = $('[data-lot-rows]', modal);
+      const last = rows.lastElementChild;
+      // New lots default to the unit of the previous lot.
+      rows.insertAdjacentHTML('beforeend', lotRowHtml({ amountUnit: last ? $('[name="lotUnit"]', last).value : 'yards' }));
+      form.dirty = true;
+      updateLotsEmpty();
+      $('[name="lotDyeLot"]', rows.lastElementChild).focus();
+    } else if (t.matches('[data-remove-lot]')) {
+      t.closest('.lot-row').remove();
+      form.dirty = true;
+      updateLotsEmpty();
     } else if (t.matches('[data-remove-row]')) {
       t.closest('.row').remove();
       form.dirty = true;
@@ -1004,17 +1111,15 @@
         console.error(err);
         alert('Sorry, that image could not be read.');
       }
-    } else if (el.matches('input[name="amountUnit"]')) {
-      const percent = el.value === 'percent';
-      $('[data-amount-suffix]', modal).textContent = AMOUNT_UNITS[el.value].suffix;
-      el.closest('.field').querySelector('.hint').textContent = percent ? PERCENT_HINT : YARDS_HINT;
     } else if (el.matches('input[name="status"]')) {
       const idx = STATUS_KEYS.indexOf(el.value);
       $$('.stepper .step', modal).forEach((s, i) => s.classList.toggle('done', i < idx));
       const year = $('[name="yearFinished"]', modal);
       if (el.value === 'finished' && !year.value) year.value = new Date().getFullYear();
     } else if (el.matches('select[name="threadId"]')) {
+      // New thread, new set of dye lots to choose from.
       el.closest('.row').querySelector('[data-open-linked]').disabled = !el.value;
+      el.closest('.linked-cell').querySelector('[data-lot-picker]').innerHTML = lotPickerHtml(el.value);
     }
   });
 
@@ -1130,18 +1235,24 @@
     return '﻿' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
   }
   const csvDate = (ms) => (ms ? new Date(ms).toISOString().slice(0, 10) : '');
-  const threadRef = (id) => {
-    const t = id && threadById(id);
-    return t ? [t.brand, t.code ? `#${t.code}` : '', t.color, t.dyeLot ? `(lot ${t.dyeLot})` : ''].filter(Boolean).join(' ') : '';
+  /** A canvas row's linked thread, with the dye lots it uses: "DMC #321 Red (lot 512B, 513)". */
+  const threadRef = (r) => {
+    const t = r.threadId && threadById(r.threadId);
+    if (!t) return '';
+    const lots = rowLots(r).map((l) => l.dyeLot || 'no lot number');
+    return [t.brand, t.code ? `#${t.code}` : '', t.color, lots.length ? `(lot ${lots.join(', ')})` : ''].filter(Boolean).join(' ');
   };
 
   function threadsCsv() {
     const usage = buildUsage();
-    const header = ['Brand', 'Material', 'Color', 'Code', 'Dye lot', 'Color family', 'Thread sizes',
-      'Amount left', 'Amount unit', 'In stock', 'Canvases used in', 'Added', 'Updated'];
+    const header = ['Brand', 'Material', 'Color', 'Code', 'Dye lots', 'Color family', 'Thread sizes',
+      'Total yards left', 'Total % of skein/card left', 'In stock', 'Canvases used in', 'Added', 'Updated'];
     const rows = [...state.threads].sort(compareThreads).map((t) => [
-      t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily ? familyLabel(t.colorFamily) : '', sizesLabel(t),
-      t.amountLeft, t.amountLeft == null ? '' : t.amountUnit === 'percent' ? '% of skein/card' : 'yards',
+      t.brand, t.material, t.color, t.code,
+      // "512B: 3 yd; 513: 50%"
+      t.lots.map((l) => [l.dyeLot || 'No lot number', fmtLotAmount(l)].filter(Boolean).join(': ')).join('; '),
+      t.colorFamily ? familyLabel(t.colorFamily) : '', sizesLabel(t),
+      threadTotals(t).yards, threadTotals(t).percent,
       isOutOfStock(t) ? 'No' : 'Yes',
       usageFor(usage, t.id).map(({ canvas }) => canvas.name || 'Untitled canvas').join('; '),
       csvDate(t.createdAt), csvDate(t.updatedAt),
@@ -1163,11 +1274,11 @@
         c.threads.map((r) => {
           const label = [r.colorDescription, r.itemDescription].filter(Boolean).join(': ');
           const detail = [r.stitchType, strands(r.strands)].filter(Boolean).join(', ');
-          return [[label, detail].filter(Boolean).join(', '), threadRef(r.threadId)].filter(Boolean).join(' - ');
+          return [[label, detail].filter(Boolean).join(', '), threadRef(r)].filter(Boolean).join(' - ');
         }).filter(Boolean).join('\n'),
         c.cording.map((r) => [
           [r.bundles != null ? `${plural(r.bundles, 'bundle')} of` : '', strands(r.strands)].filter(Boolean).join(' '),
-          threadRef(r.threadId),
+          threadRef(r),
         ].filter(Boolean).join(' - ')).filter(Boolean).join('\n'),
         c.cording.some((r) => r.strands != null) ? cordingTotal(c.cording) : '',
         c.notes, csvDate(c.createdAt), csvDate(c.updatedAt),
@@ -1191,55 +1302,90 @@
     },
   };
 
-  const exportMenu = $('#export-menu');
-  function setExportMenu(open) {
-    exportMenu.hidden = !open;
-    $('#btn-export').setAttribute('aria-expanded', String(open));
-    exportMenu.style.setProperty('--menu-top', `${$('#btn-export').getBoundingClientRect().bottom + 6}px`);
-    if (open) $('button', exportMenu).focus();
+  // ---- Drop-down menus in the top bar (Export, Import) ----
+  const MENUS = [{ button: $('#btn-export'), menu: $('#export-menu') }, { button: $('#btn-import'), menu: $('#import-menu') }];
+  function setMenu(m, open) {
+    m.menu.hidden = !open;
+    m.button.setAttribute('aria-expanded', String(open));
+    m.menu.style.setProperty('--menu-top', `${m.button.getBoundingClientRect().bottom + 6}px`);
+    if (open) $('button', m.menu).focus();
   }
-  $('#btn-export').addEventListener('click', (e) => {
-    e.stopPropagation();
-    setExportMenu(exportMenu.hidden);
-  });
-  exportMenu.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-export]');
-    if (!b) return;
-    setExportMenu(false);
-    EXPORTS[b.dataset.export]();
-  });
+  for (const m of MENUS) {
+    m.button.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = m.menu.hidden;
+      MENUS.forEach((other) => setMenu(other, false));
+      setMenu(m, open);
+    });
+  }
   document.addEventListener('click', (e) => {
-    if (!exportMenu.hidden && !exportMenu.contains(e.target)) setExportMenu(false);
+    MENUS.forEach((m) => { if (!m.menu.hidden && !m.menu.contains(e.target)) setMenu(m, false); });
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !exportMenu.hidden) {
-      setExportMenu(false);
-      $('#btn-export').focus();
+    if (e.key !== 'Escape') return;
+    const m = MENUS.find((x) => !x.menu.hidden);
+    if (m) {
+      setMenu(m, false);
+      m.button.focus();
     }
   });
 
-  $('#btn-import').addEventListener('click', () => $('#import-file').click());
+  $('#export-menu').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-export]');
+    if (!b) return;
+    setMenu(MENUS[0], false);
+    EXPORTS[b.dataset.export]();
+  });
+
+  /** 'merge' adds to / updates existing data; 'replace' deletes everything first. Set by the Import menu. */
+  let importMode = 'merge';
+  $('#import-menu').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-import]');
+    if (!b) return;
+    setMenu(MENUS[1], false);
+    importMode = b.dataset.import;
+    $('#import-file').click();
+  });
+
   $('#import-file').addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const replace = importMode === 'replace';
     try {
       const data = JSON.parse(await file.text());
       if (!Array.isArray(data.threads) || !Array.isArray(data.canvases)) throw new Error('This file is not a Needlepoint Tracker backup.');
       const valid = (x) => x && typeof x === 'object' && typeof x.id === 'string';
       const threads = data.threads.filter(valid).map(normalizeThread);
       const canvases = data.canvases.filter(valid).map(normalizeCanvas);
-      if (!confirm(`Import ${plural(threads.length, 'thread')} and ${plural(canvases.length, 'canvas', 'canvases')}? Items with the same ID will be replaced; everything else is kept.`)) return;
+      const incoming = `${plural(threads.length, 'thread')} and ${plural(canvases.length, 'canvas', 'canvases')}`;
+      const where = useServer ? 'your account' : 'this browser';
+      // Replace deletes what is saved now (another device may have added items since this page loaded).
+      const current = replace ? await dbLoad() : null;
+      const ok = replace
+        ? confirm(`Replace all data in ${where}?\n\nThis permanently deletes your ${plural(current.threads.length, 'thread')} and `
+          + `${plural(current.canvases.length, 'canvas', 'canvases')}, then loads ${incoming} from the file. It cannot be undone.\n\n`
+          + 'Tip: cancel and use Export > Backup (JSON) first if you might want your current data back.')
+        : confirm(`Import ${incoming}? Items already in your data are updated from the file; everything else is kept.`);
+      if (!ok) return;
+      const incomingIds = { threads: new Set(threads.map((t) => t.id)), canvases: new Set(canvases.map((c) => c.id)) };
+      // One atomic write: deletes and puts succeed or fail together, so a failed replace loses nothing.
       await dbWrite(STORES, (s) => {
+        if (replace) {
+          current.threads.forEach((t) => { if (!incomingIds.threads.has(t.id)) s('threads').delete(t.id); });
+          current.canvases.forEach((c) => { if (!incomingIds.canvases.has(c.id)) s('canvases').delete(c.id); });
+        }
         threads.forEach((t) => s('threads').put(t));
         canvases.forEach((c) => s('canvases').put(c));
       });
       await loadAll();
       render();
-      toast('Import complete');
+      toast(replace ? `Replaced all data with ${incoming}` : 'Import complete');
     } catch (err) {
       console.error(err);
       alert(`Import failed: ${err.message || err}`);
+    } finally {
+      importMode = 'merge';
     }
   });
 

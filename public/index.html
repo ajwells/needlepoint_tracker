@@ -40,9 +40,19 @@
             </button>
           </div>
         </div>
-        <button class="btn ghost sm" id="btn-import" title="Restore data from a backup file">
-          <span data-icon="upload"></span><span class="hide-sm">Import</span>
-        </button>
+        <div class="menu-wrap">
+          <button class="btn ghost sm" id="btn-import" title="Import a backup file" aria-haspopup="true" aria-expanded="false" aria-controls="import-menu">
+            <span data-icon="upload"></span><span class="hide-sm">Import</span>
+          </button>
+          <div class="menu" id="import-menu" hidden>
+            <button type="button" data-import="merge">
+              <strong>Add to my data</strong><span>Keeps what you have. Items already in your data are updated from the file.</span>
+            </button>
+            <button type="button" data-import="replace" class="danger">
+              <strong>Replace all data</strong><span>Deletes all your threads and canvases, then loads the file.</span>
+            </button>
+          </div>
+        </div>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
         <div class="user-menu" id="user-menu" hidden>
           <span class="user-name hide-sm" id="user-name"></span>
