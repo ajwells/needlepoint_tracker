@@ -560,10 +560,10 @@ body.signed-out .guest-banner { display: none; }
   border: 1px solid var(--border); border-radius: var(--radius-sm); gap: 0;
 }
 .modal.viewing.list-table .thread-rows .rows, .modal.viewing.list-table .cording-rows .rows { gap: 0; }
-.modal.viewing.list-table .thread-rows { --table-min: 900px; }
+.modal.viewing.list-table .thread-rows { --table-min: 930px; }
 .modal.viewing.list-table .cording-rows { --table-min: 560px; }
 .modal.viewing.list-table .thread-rows .rows-head, .modal.viewing.list-table .thread-rows .row {
-  grid-template-columns: minmax(120px, 1.1fr) minmax(130px, 1.1fr) minmax(130px, 1fr) 64px minmax(330px, 1.7fr) 34px;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, 1fr) minmax(170px, 1.3fr) 64px minmax(300px, 1.6fr) 34px;
 }
 .modal.viewing.list-table .cording-rows .rows-head, .modal.viewing.list-table .cording-rows .row {
   grid-template-columns: 70px 70px minmax(330px, 1fr) 34px;
@@ -585,3 +585,4 @@ body.signed-out .guest-banner { display: none; }
 .badge.gifted { color: var(--accent); }
 .card-media .corner .badge.gifted { color: var(--accent); }
 .badge.gifted svg { width: 12px; height: 12px; }
+.modal.viewing.list-table .rows-head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -736,7 +736,7 @@
     return `<div class="row" data-row="thread">
       ${cell('Color description', `<input name="colorDescription" value="${esc(r.colorDescription)}" placeholder="e.g. dark green">`)}
       ${cell('Item description', `<input name="itemDescription" value="${esc(r.itemDescription)}" placeholder="e.g. holly leaves">`)}
-      ${cell('Stitch type', `<input name="stitchType" value="${esc(r.stitchType)}" placeholder="e.g. basketweave">`)}
+      ${cell('Specialty stitch type', `<input name="stitchType" value="${esc(r.stitchType)}" placeholder="e.g. French knots">`)}
       ${cell('Strands', `<input name="strands" type="number" inputmode="numeric" min="0" step="1" value="${esc(r.strands)}">`)}
       ${cell('Linked thread', `<select name="threadId">${threadOptions(r.threadId)}</select>`, 'wide')}
       ${rowActions(r.threadId)}
@@ -824,7 +824,7 @@
             <button type="button" class="btn ghost sm" data-add-row="thread" data-edit-only>${icon('plus')}Add thread</button></div>
           ${noThreadsHint}
           <div class="rows thread-rows">
-            <div class="rows-head"><span>Color description</span><span>Item description</span><span>Stitch type</span><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
+            <div class="rows-head"><span>Color description</span><span>Item description</span><span>Specialty stitch type</span><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
             <div class="rows" data-rows="thread">${c.threads.map(threadRowHtml).join('')}</div>
           </div>
         </div>
