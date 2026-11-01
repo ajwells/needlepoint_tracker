@@ -347,7 +347,7 @@ svg.icon { width: 18px; height: 18px; flex: none; }
 .family-picker input:focus-visible + .chip { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* image upload */
-.image-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.image-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .image-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .image-drop {
   position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3;
@@ -435,7 +435,7 @@ svg.icon { width: 18px; height: 18px; flex: none; }
   .toolbar .select, .toolbar .segmented { width: 100%; }
   .toolbar .segmented button { flex: 1; }
 }
-@media (max-width: 420px) {
+@media (max-width: 560px) {
   .image-row { grid-template-columns: 1fr; }
 }
 

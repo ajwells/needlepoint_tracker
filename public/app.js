@@ -851,7 +851,7 @@
     </div>`;
     form = {
       kind: 'canvas', id: id || null, title: c.name || 'Untitled canvas', dirty: false,
-      images: { picture: c.picture || null, finishedPicture: c.finishedPicture || null },
+      images: { picture: c.picture || null, finishedPicture: c.finishedPicture || null, finishedBackPicture: c.finishedBackPicture || null },
     };
     const v = (k) => esc(c[k] ?? '');
     const noThreadsHint = state.threads.length
@@ -869,7 +869,8 @@
         <div class="section">
           <div class="image-row">
             ${imageFieldHtml('picture', 'Canvas picture')}
-            ${imageFieldHtml('finishedPicture', 'Finished picture')}
+            ${imageFieldHtml('finishedPicture', 'Finished canvas front')}
+            ${imageFieldHtml('finishedBackPicture', 'Finished canvas back')}
           </div>
         </div>
 
@@ -996,6 +997,7 @@
       status: STATUS_KEYS.includes(fd.get('status')) ? fd.get('status') : DEFAULT_STATUS,
       yearFinished: intOrNull(fd.get('yearFinished')),
       finishedPicture: form.images.finishedPicture || null,
+      finishedBackPicture: form.images.finishedBackPicture || null,
       designer: str(fd.get('designer')),
       shopName: str(fd.get('shopName')),
       meshSize: intOrNull(fd.get('meshSize')),
