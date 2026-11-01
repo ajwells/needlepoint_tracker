@@ -13,6 +13,10 @@
   const FAMILY_COLOR = Object.fromEntries(COLOR_FAMILIES);
   const familyLabel = (f) => (f === 'Grey' ? 'Grey / Gray' : f);
   const MESH_SIZES = [13, 18];
+  /** Which canvases a thread suits; a thread can have several. */
+  const THREAD_SIZES = [['13', '13 mesh'], ['18', '18 mesh'], ['strandable', 'Strandable']];
+  const THREAD_SIZE_LABEL = Object.fromEntries(THREAD_SIZES);
+  const sizesLabel = (t) => (t.sizes || []).map((s) => THREAD_SIZE_LABEL[s]).join(', ');
   /** Canvas lifecycle, in order. */
   const CANVAS_STATUSES = [
     ['wishlist', 'Wish list'], ['purchased', 'Purchased'], ['kitted', 'Kitted'],
@@ -229,13 +233,21 @@
    * Upgrade older thread records:
    * - amounts saved as `yardsLeft` before units existed
    * - code / dye lot saved as numbers before they became text (codes like "C-109", lots like "512B")
+   * - a single numeric `size` (e.g. Perle #5) before sizes became 13 / 18 / strandable:
+   *   the number is a product size, so it moves into the material ("Pearl cotton #5")
    */
   function normalizeThread(t) {
-    const { yardsLeft, ...rest } = t;
+    const { yardsLeft, size, ...rest } = t;
     const out = { ...rest, code: textOrEmpty(rest.code), dyeLot: textOrEmpty(rest.dyeLot) };
     if ('yardsLeft' in t) {
       out.amountLeft = rest.amountLeft ?? yardsLeft ?? null;
       out.amountUnit = rest.amountUnit || 'yards';
+    }
+    const valid = THREAD_SIZES.map(([k]) => k);
+    out.sizes = Array.isArray(rest.sizes) ? valid.filter((k) => rest.sizes.map(String).includes(k)) : [];
+    if (size !== null && size !== undefined && size !== '') {
+      const material = textOrEmpty(rest.material);
+      out.material = material.includes(`#${size}`) ? material : `${material} #${size}`.trim();
     }
     return out;
   }
@@ -277,7 +289,7 @@
     let s = t.brand || 'Untitled';
     if (t.code) s += ` #${t.code}`;
     if (t.color) s += ` · ${t.color}`;
-    const extra = [t.material, t.size != null ? `size ${t.size}` : ''].filter(Boolean).join(' ');
+    const extra = [t.material, sizesLabel(t)].filter(Boolean).join(', ');
     if (extra) s += ` (${extra})`;
     if (t.amountLeft != null) s += ` — ${fmtAmount(t)} left`;
     return s;
@@ -330,7 +342,7 @@
     let list = state.threads.filter((t) => {
       if (state.threadFamily && t.colorFamily !== state.threadFamily) return false;
       if (!q) return true;
-      const hay = [t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', t.size]
+      const hay = [t.brand, t.material, t.color, t.code, t.dyeLot, t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
         .join(' ')
         .toLowerCase();
       return q.split(/\s+/).every((w) => hay.includes(w));
@@ -376,7 +388,7 @@
         : `<div class="placeholder">${icon('spool')}</div>`;
     const meta = [
       t.colorFamily ? `<span class="badge"><span class="dot" style="--sw:${sw}"></span>${esc(familyLabel(t.colorFamily))}</span>` : '',
-      t.size != null ? `<span class="badge">Size ${t.size}</span>` : '',
+      ...(t.sizes || []).map((s) => `<span class="badge">${esc(THREAD_SIZE_LABEL[s])}</span>`),
       t.amountLeft != null ? `<span class="badge accent yards" title="Amount left">${fmtAmount(t)}${t.amountUnit === 'percent' ? ' of skein' : ''}</span>` : '',
       used.length ? `<span class="badge">${icon('canvas').replace('class="icon"', 'class="icon" style="width:12px;height:12px"')}${plural(used.length, 'canvas', 'canvases')}</span>` : '',
     ].join('');
@@ -565,7 +577,11 @@
             ${field('Material', `<input name="material" value="${v('material')}" placeholder="e.g. Pearl cotton, wool, silk" autocomplete="off">`)}
             ${field('Color', `<input name="color" value="${v('color')}" placeholder="e.g. Christmas Red" autocomplete="off">`)}
             ${field('Code', `<input name="code" value="${v('code')}" placeholder="e.g. 321, C-109, SL40" autocomplete="off">`)}
-            ${field('Thread size', `<input name="size" type="number" inputmode="numeric" min="0" step="1" value="${v('size')}" placeholder="e.g. 5">`)}
+            <div class="field" role="group" aria-label="Thread size"><span class="label">Thread size</span>
+              <div class="family-picker">
+                ${THREAD_SIZES.map(([k, label]) => `<label><input type="checkbox" name="sizes" value="${k}" ${(t.sizes || []).includes(k) ? 'checked' : ''}><span class="chip">${label}</span></label>`).join('')}
+              </div>
+            </div>
             ${field('Dye lot', `<input name="dyeLot" value="${v('dyeLot')}" placeholder="e.g. 512B" autocomplete="off">`)}
             <div class="field span-2"><span class="label">Amount left</span>
               <div class="amount-row">
@@ -596,7 +612,7 @@
       updatedAt: Date.now(),
       brand: str(fd.get('brand')),
       material: str(fd.get('material')),
-      size: intOrNull(fd.get('size')),
+      sizes: THREAD_SIZES.map(([k]) => k).filter((k) => fd.getAll('sizes').includes(k)),
       colorFamily: fd.get('colorFamily') || '',
       color: str(fd.get('color')),
       code: str(fd.get('code')),
