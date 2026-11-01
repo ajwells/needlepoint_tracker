@@ -488,3 +488,9 @@ body.signed-out .topbar, body.signed-out main { display: none; }
 .viewing .image-drop:not(.has-image) { aspect-ratio: auto; height: 56px; }
 .viewing .image-drop:not(.has-image) .image-placeholder { flex-direction: row; font-size: 13px; }
 .viewing .image-drop:not(.has-image) .image-placeholder svg { width: 18px; height: 18px; }
+
+/* Photos in the thread / canvas form are never cropped. */
+.image-drop img { position: absolute; inset: 0; object-fit: contain; }
+/* Viewing: the frame takes the photo's own shape (capped so tall photos still fit on screen). */
+.viewing .image-drop.has-image { aspect-ratio: auto; display: flex; justify-content: center; }
+.viewing .image-drop.has-image img { position: static; width: auto; max-width: 100%; height: auto; max-height: min(70vh, 640px); }
