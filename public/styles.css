@@ -494,3 +494,26 @@ body.signed-out .topbar, body.signed-out main { display: none; }
 /* Viewing: the frame takes the photo's own shape (capped so tall photos still fit on screen). */
 .viewing .image-drop.has-image { aspect-ratio: auto; display: flex; justify-content: center; }
 .viewing .image-drop.has-image img { position: static; width: auto; max-width: 100%; height: auto; max-height: min(70vh, 640px); }
+
+/* ---------- Guest mode ---------- */
+.auth-divider { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.auth-card p.auth-guest-note { font-size: 13px; color: var(--muted); text-align: center; margin-top: -6px; }
+.auth-guest-note strong { color: var(--text); }
+.guest-banner { background: #fdf3dc; color: #6b4a00; border-bottom: 1px solid #f0dca8; font-size: 14px; }
+.guest-banner-inner {
+  max-width: 1240px; margin: 0 auto; padding: 10px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
+}
+.guest-banner .link { color: inherit; text-decoration: underline; white-space: nowrap; }
+body.signed-out .guest-banner { display: none; }
+@media (prefers-color-scheme: dark) {
+  .guest-banner { background: #3a2f12; color: #f3d98f; border-bottom-color: #54451c; }
+}
+@media (max-width: 720px) {
+  .guest-banner { font-size: 13px; }
+  .guest-banner-inner { padding: 8px 16px; }
+}
+/* Empty login fields are not errors; the server reports what is missing. */
+.auth-card .field input:invalid { border-color: var(--border); }
+.auth-card .field input:invalid:focus { border-color: var(--accent); }

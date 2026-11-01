@@ -128,6 +128,8 @@
   const DB_NAME = 'needlepoint-tracker';
   const STORES = ['threads', 'canvases'];
   const SERVER = location.protocol === 'http:' || location.protocol === 'https:';
+  /** True while logged in to an account; false for guests and file:// use, whose data stays in this browser. */
+  let useServer = SERVER;
   let dbPromise;
 
   class ApiError extends Error {
@@ -157,7 +159,7 @@
 
   /** Load every record from the active backend. */
   async function dbLoad() {
-    if (SERVER) return api('GET', '/api/data');
+    if (useServer) return api('GET', '/api/data');
     const [threads, canvases] = await Promise.all([idbGetAll('threads'), idbGetAll('canvases')]);
     return { threads, canvases };
   }
@@ -167,7 +169,7 @@
    * `fn` receives `s(storeName)` exposing `put(record)` and `delete(id)`.
    */
   async function dbWrite(stores, fn) {
-    if (!SERVER) return idbWrite(stores, fn);
+    if (!useServer) return idbWrite(stores, fn);
     const ops = [];
     fn((store) => ({
       put: (value) => ops.push({ op: 'put', store, value }),
@@ -1067,14 +1069,27 @@
   // Accounts (server mode only)
   // ---------------------------------------------------------------------------
   const auth = { mode: 'login', allowSignup: true };
+  const GUEST_KEY = 'needlepoint-guest';
+  const GUEST_WARNING =
+    "Guest data is not saved on the server. It stays in this browser only, so it won't appear on your other devices, " +
+    'and clearing your browser data erases it. Use Export and Import to back it up or share it.';
+  // Remember guest mode across reloads; storage can be unavailable (private windows), so never rely on it.
+  const guestFlag = {
+    get: () => { try { return localStorage.getItem(GUEST_KEY) === '1'; } catch { return false; } },
+    set: (on) => { try { on ? localStorage.setItem(GUEST_KEY, '1') : localStorage.removeItem(GUEST_KEY); } catch {} },
+  };
 
   function showAuth(message = '') {
     state.threads = [];
     state.canvases = [];
     $('#thread-grid').innerHTML = '';
     $('#canvas-grid').innerHTML = '';
+    $('#count-threads').textContent = $('#count-canvases').textContent = '0';
     if ($('#modal').open) $('#modal').close();
+    useServer = SERVER;
     document.body.classList.add('signed-out');
+    document.body.classList.remove('guest');
+    $('#guest-banner').hidden = true;
     $('#auth').hidden = false;
     $('#user-menu').hidden = true;
     setAuthMode(auth.mode);
@@ -1102,12 +1117,42 @@
     $('#auth-error').hidden = true;
   }
 
-  async function signedIn(username) {
+  function showUserMenu(name, buttonLabel, buttonTitle) {
     document.body.classList.remove('signed-out');
     $('#auth').hidden = true;
     $('#user-menu').hidden = false;
-    $('#user-name').textContent = username;
-    $('#btn-logout').title = `Log out ${username}`;
+    $('#user-name').textContent = name;
+    $('#btn-logout .btn-label').textContent = buttonLabel;
+    $('#btn-logout').title = buttonTitle;
+  }
+
+  /** Use the app without an account: data lives in this browser's IndexedDB, like the file:// version. */
+  async function enterGuest() {
+    if (!('indexedDB' in window)) {
+      showAuth('Guest mode needs browser storage, which is unavailable here (it can be blocked in private windows). Please log in instead.');
+      return;
+    }
+    useServer = false;
+    guestFlag.set(true);
+    document.body.classList.add('guest');
+    $('#guest-banner').hidden = false;
+    showUserMenu('Guest', 'Exit guest', 'Leave guest mode (your guest data stays in this browser)');
+    navigator.storage?.persist?.().catch(() => {});
+    try {
+      await loadAll();
+    } catch (err) {
+      console.error(err);
+      alert(`Could not open saved data: ${err.message || err}`);
+    }
+    setTab(location.hash.slice(1) || 'threads');
+  }
+
+  async function signedIn(username) {
+    useServer = true;
+    guestFlag.set(false);
+    document.body.classList.remove('guest');
+    $('#guest-banner').hidden = true;
+    showUserMenu(username, 'Log out', `Log out ${username}`);
     try {
       await loadAll();
     } catch (err) {
@@ -1119,7 +1164,7 @@
     offerLocalUpload();
   }
 
-  /** If this browser still has data from before accounts existed, offer to move it into the empty account. */
+  /** If this browser has local data (guest mode, or from before accounts existed), offer to move it into the empty account. */
   async function offerLocalUpload() {
     if (state.threads.length || state.canvases.length || !('indexedDB' in window)) return;
     let local;
@@ -1131,7 +1176,7 @@
     }
     if (!local.threads.length && !local.canvases.length) return;
     const what = `${plural(local.threads.length, 'thread')} and ${plural(local.canvases.length, 'canvas', 'canvases')}`;
-    if (!confirm(`This browser has ${what} saved from before you had an account. Add them to your account?`)) return;
+    if (!confirm(`This browser has ${what} saved locally (from guest mode or before you had an account). Add them to your account?`)) return;
     try {
       await dbWrite(STORES, (s) => {
         local.threads.forEach((t) => s('threads').put(normalizeThread(t)));
@@ -1145,6 +1190,15 @@
       alert(storageErrorMessage(err));
     }
   }
+
+  $('#auth-guest').addEventListener('click', () => {
+    if (confirm(`Continue as a guest?\n\n${GUEST_WARNING}`)) enterGuest();
+  });
+  $('#guest-signup').addEventListener('click', () => {
+    guestFlag.set(false);
+    auth.mode = 'register';
+    showAuth();
+  });
 
   $('#auth').addEventListener('click', (e) => {
     const b = e.target.closest('[data-auth-mode]');
@@ -1176,10 +1230,15 @@
   });
 
   $('#btn-logout').addEventListener('click', async () => {
-    try {
-      await api('POST', '/api/logout');
-    } catch (err) {
-      console.error(err);
+    if (!useServer) {
+      // Leaving guest mode keeps the guest data in this browser for next time.
+      guestFlag.set(false);
+    } else {
+      try {
+        await api('POST', '/api/logout');
+      } catch (err) {
+        console.error(err);
+      }
     }
     auth.mode = 'login';
     showAuth();
@@ -1208,7 +1267,8 @@
       session = await api('GET', '/api/session');
     } catch (err) {
       auth.allowSignup = err.data?.allowSignup !== false;
-      showAuth(err.status === 401 ? '' : err.message);
+      if (guestFlag.get()) enterGuest();
+      else showAuth(err.status === 401 ? '' : err.message);
       return;
     }
     auth.allowSignup = session.allowSignup !== false;

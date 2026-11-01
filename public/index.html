@@ -34,7 +34,7 @@
         <div class="user-menu" id="user-menu" hidden>
           <span class="user-name hide-sm" id="user-name"></span>
           <button class="btn ghost sm" id="btn-logout" title="Log out">
-            <span data-icon="logout"></span><span class="hide-sm">Log out</span>
+            <span data-icon="logout"></span><span class="hide-sm btn-label">Log out</span>
           </button>
         </div>
       </div>
@@ -60,8 +60,20 @@
       <p class="auth-error" id="auth-error" role="alert" hidden></p>
       <button class="btn primary" id="auth-submit" type="submit">Log in</button>
       <p class="auth-switch muted" id="auth-switch"></p>
+      <div class="auth-divider" aria-hidden="true"><span>or</span></div>
+      <button class="btn ghost" id="auth-guest" type="button">Continue as guest</button>
+      <p class="auth-guest-note">
+        <strong>Guest data is not saved on the server.</strong> It stays in this browser only. Use Export and Import to back it up or share it.
+      </p>
     </form>
   </section>
+
+  <div class="guest-banner" id="guest-banner" role="status" hidden>
+    <div class="guest-banner-inner">
+      <span><strong>Guest mode:</strong> your data is only saved in this browser, not on the server. Use <strong>Export</strong> and <strong>Import</strong> to back it up or share it.</span>
+      <button type="button" class="link" id="guest-signup">Create an account</button>
+    </div>
+  </div>
 
   <main class="container">
     <!-- THREADS -->
