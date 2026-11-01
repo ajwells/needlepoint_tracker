@@ -1136,6 +1136,7 @@
     guestFlag.set(true);
     document.body.classList.add('guest');
     $('#guest-banner').hidden = false;
+    $('#guest-signup').hidden = !auth.allowSignup; // no "Create an account" when the server has signups turned off
     showUserMenu('Guest', 'Exit guest', 'Leave guest mode (your guest data stays in this browser)');
     navigator.storage?.persist?.().catch(() => {});
     try {
