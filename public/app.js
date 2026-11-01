@@ -33,6 +33,7 @@
     trash: '<path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
     spool: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M6 7h12M6 17h12M9 10l6 2M9 13l6 2"/>',
     canvas: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   };
   const icon = (name) =>
     `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -115,11 +116,60 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Storage (IndexedDB)
+  // Storage
+  // Served over http(s): each user's data lives on the server behind a login.
+  // Opened as a file: data stays in this browser's IndexedDB (no login).
   // ---------------------------------------------------------------------------
   const DB_NAME = 'needlepoint-tracker';
   const STORES = ['threads', 'canvases'];
+  const SERVER = location.protocol === 'http:' || location.protocol === 'https:';
   let dbPromise;
+
+  class ApiError extends Error {
+    constructor(status, message) {
+      super(message);
+      this.status = status;
+    }
+  }
+
+  async function api(method, url, body) {
+    let res;
+    try {
+      res = await fetch(url, {
+        method,
+        credentials: 'same-origin',
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      throw new ApiError(0, 'Could not reach the server. Check your connection.');
+    }
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 401 && !url.startsWith('/api/login') && !url.startsWith('/api/session')) showAuth('Your session has ended. Please log in again.');
+    if (!res.ok) throw Object.assign(new ApiError(res.status, data.error || `Request failed (${res.status})`), { data });
+    return data;
+  }
+
+  /** Load every record from the active backend. */
+  async function dbLoad() {
+    if (SERVER) return api('GET', '/api/data');
+    const [threads, canvases] = await Promise.all([idbGetAll('threads'), idbGetAll('canvases')]);
+    return { threads, canvases };
+  }
+
+  /**
+   * Run writes across one or more stores atomically.
+   * `fn` receives `s(storeName)` exposing `put(record)` and `delete(id)`.
+   */
+  async function dbWrite(stores, fn) {
+    if (!SERVER) return idbWrite(stores, fn);
+    const ops = [];
+    fn((store) => ({
+      put: (value) => ops.push({ op: 'put', store, value }),
+      delete: (id) => ops.push({ op: 'delete', store, id }),
+    }));
+    if (ops.length) await api('POST', '/api/batch', { ops });
+  }
 
   function openDb() {
     dbPromise ||= new Promise((resolve, reject) => {
@@ -134,7 +184,7 @@
     return dbPromise;
   }
 
-  async function dbGetAll(store) {
+  async function idbGetAll(store) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const req = db.transaction(store, 'readonly').objectStore(store).getAll();
@@ -143,8 +193,8 @@
     });
   }
 
-  /** Run writes across one or more stores in a single atomic transaction. */
-  async function dbWrite(stores, fn) {
+  /** Run writes across one or more IndexedDB stores in a single atomic transaction. */
+  async function idbWrite(stores, fn) {
     const db = await openDb();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(stores, 'readwrite');
@@ -170,7 +220,7 @@
   };
 
   async function loadAll() {
-    const [threads, canvases] = await Promise.all([dbGetAll('threads'), dbGetAll('canvases')]);
+    const { threads, canvases } = await dbLoad();
     state.threads = threads.map(normalizeThread);
     state.canvases = canvases.map(normalizeCanvas);
   }
@@ -866,6 +916,7 @@
   }
 
   function storageErrorMessage(err) {
+    if (err?.status === 401) return 'You were logged out, so this change was not saved. Log in and try again.';
     return err?.name === 'QuotaExceededError'
       ? 'Your browser is out of storage space for this app. Try removing some photos or exporting a backup.'
       : `Something went wrong saving your data: ${err?.message || err}`;
@@ -959,20 +1010,156 @@
     $$('[data-icon]', root).forEach((el) => { el.outerHTML = icon(el.dataset.icon); });
   }
 
-  async function init() {
-    hydrateIcons();
-    if (!('indexedDB' in window)) {
-      document.querySelector('main').innerHTML = '<div class="empty"><h2>Storage unavailable</h2><p>This browser does not support IndexedDB, which is needed to save your data.</p></div>';
-      return;
-    }
-    navigator.storage?.persist?.().catch(() => {});
+  // ---------------------------------------------------------------------------
+  // Accounts (server mode only)
+  // ---------------------------------------------------------------------------
+  const auth = { mode: 'login', allowSignup: true };
+
+  function showAuth(message = '') {
+    state.threads = [];
+    state.canvases = [];
+    $('#thread-grid').innerHTML = '';
+    $('#canvas-grid').innerHTML = '';
+    if ($('#modal').open) $('#modal').close();
+    document.body.classList.add('signed-out');
+    $('#auth').hidden = false;
+    $('#user-menu').hidden = true;
+    setAuthMode(auth.mode);
+    $('#auth-error').textContent = message;
+    $('#auth-error').hidden = !message;
+    $('#auth-form [name="password"]').value = '';
+    $('#auth-form [name="username"]').focus();
+  }
+
+  function setAuthMode(mode) {
+    auth.mode = auth.allowSignup ? mode : 'login';
+    const signup = auth.mode === 'register';
+    $('#auth-title').textContent = signup ? 'Create your account' : 'Log in';
+    $('#auth-lead').textContent = signup
+      ? 'Your threads and canvases are saved to your account so you can reach them from any device.'
+      : 'Log in to see your threads and canvases.';
+    $('#auth-submit').textContent = signup ? 'Create account' : 'Log in';
+    $('#auth-form [name="password"]').autocomplete = signup ? 'new-password' : 'current-password';
+    $('#auth-form [name="password"]').minLength = signup ? 8 : 0;
+    $('#auth-password-hint').hidden = !signup;
+    $('#auth-switch').hidden = !auth.allowSignup;
+    $('#auth-switch').innerHTML = signup
+      ? 'Already have an account? <button type="button" class="link" data-auth-mode="login">Log in</button>'
+      : 'New here? <button type="button" class="link" data-auth-mode="register">Create an account</button>';
+    $('#auth-error').hidden = true;
+  }
+
+  async function signedIn(username) {
+    document.body.classList.remove('signed-out');
+    $('#auth').hidden = true;
+    $('#user-menu').hidden = false;
+    $('#user-name').textContent = username;
+    $('#btn-logout').title = `Log out ${username}`;
     try {
       await loadAll();
     } catch (err) {
       console.error(err);
-      alert(`Could not open saved data: ${err.message || err}`);
+      if (err.status !== 401) alert(`Could not load your data: ${err.message || err}`);
+      return;
     }
     setTab(location.hash.slice(1) || 'threads');
+    offerLocalUpload();
+  }
+
+  /** If this browser still has data from before accounts existed, offer to move it into the empty account. */
+  async function offerLocalUpload() {
+    if (state.threads.length || state.canvases.length || !('indexedDB' in window)) return;
+    let local;
+    try {
+      const [threads, canvases] = await Promise.all([idbGetAll('threads'), idbGetAll('canvases')]);
+      local = { threads, canvases };
+    } catch {
+      return;
+    }
+    if (!local.threads.length && !local.canvases.length) return;
+    const what = `${plural(local.threads.length, 'thread')} and ${plural(local.canvases.length, 'canvas', 'canvases')}`;
+    if (!confirm(`This browser has ${what} saved from before you had an account. Add them to your account?`)) return;
+    try {
+      await dbWrite(STORES, (s) => {
+        local.threads.forEach((t) => s('threads').put(normalizeThread(t)));
+        local.canvases.forEach((c) => s('canvases').put(normalizeCanvas(c)));
+      });
+      await loadAll();
+      render();
+      toast(`Added ${what} to your account`);
+    } catch (err) {
+      console.error(err);
+      alert(storageErrorMessage(err));
+    }
+  }
+
+  $('#auth').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-auth-mode]');
+    if (b) {
+      setAuthMode(b.dataset.authMode);
+      $('#auth-form [name="username"]').focus();
+    }
+  });
+
+  $('#auth-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const btn = $('#auth-submit');
+    btn.disabled = true;
+    $('#auth-error').hidden = true;
+    try {
+      const { user } = await api('POST', auth.mode === 'register' ? '/api/register' : '/api/login', {
+        username: String(fd.get('username')).trim(),
+        password: String(fd.get('password')),
+      });
+      e.target.reset();
+      await signedIn(user.username);
+    } catch (err) {
+      $('#auth-error').textContent = err.message;
+      $('#auth-error').hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#btn-logout').addEventListener('click', async () => {
+    try {
+      await api('POST', '/api/logout');
+    } catch (err) {
+      console.error(err);
+    }
+    auth.mode = 'login';
+    showAuth();
+  });
+
+  async function init() {
+    hydrateIcons();
+    if (!SERVER) {
+      if (!('indexedDB' in window)) {
+        document.querySelector('main').innerHTML = '<div class="empty"><h2>Storage unavailable</h2><p>This browser does not support IndexedDB, which is needed to save your data.</p></div>';
+        return;
+      }
+      navigator.storage?.persist?.().catch(() => {});
+      try {
+        await loadAll();
+      } catch (err) {
+        console.error(err);
+        alert(`Could not open saved data: ${err.message || err}`);
+      }
+      setTab(location.hash.slice(1) || 'threads');
+      return;
+    }
+    document.body.classList.add('signed-out'); // keep the app hidden until we know who is logged in
+    let session;
+    try {
+      session = await api('GET', '/api/session');
+    } catch (err) {
+      auth.allowSignup = err.data?.allowSignup !== false;
+      showAuth(err.status === 401 ? '' : err.message);
+      return;
+    }
+    auth.allowSignup = session.allowSignup !== false;
+    await signedIn(session.user.username);
   }
 
   init();

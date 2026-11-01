@@ -31,9 +31,37 @@
           <span data-icon="upload"></span><span class="hide-sm">Import</span>
         </button>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <div class="user-menu" id="user-menu" hidden>
+          <span class="user-name hide-sm" id="user-name"></span>
+          <button class="btn ghost sm" id="btn-logout" title="Log out">
+            <span data-icon="logout"></span><span class="hide-sm">Log out</span>
+          </button>
+        </div>
       </div>
     </div>
   </header>
+
+  <section id="auth" class="auth" hidden>
+    <form id="auth-form" class="auth-card" novalidate>
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8"/><path d="M8 8h4v4H8zM14 14h4v4h-4zM20 20h4v4h-4zM20 8h4v4h-4zM8 20h4v4H8z"/></svg>
+      </span>
+      <h1 id="auth-title">Log in</h1>
+      <p class="muted" id="auth-lead"></p>
+      <label class="field">
+        <span class="label">Username</span>
+        <input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32">
+      </label>
+      <label class="field">
+        <span class="label">Password</span>
+        <input name="password" type="password" required autocomplete="current-password">
+        <small class="hint" id="auth-password-hint" hidden>At least 8 characters.</small>
+      </label>
+      <p class="auth-error" id="auth-error" role="alert" hidden></p>
+      <button class="btn primary" id="auth-submit" type="submit">Log in</button>
+      <p class="auth-switch muted" id="auth-switch"></p>
+    </form>
+  </section>
 
   <main class="container">
     <!-- THREADS -->
