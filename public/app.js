@@ -37,6 +37,7 @@
     trash: '<path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/>',
     spool: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M6 7h12M6 17h12M9 10l6 2M9 13l6 2"/>',
     canvas: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
+    edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   };
   const icon = (name) =>
@@ -509,9 +510,9 @@
       <span class="label">${esc(label)}</span>
       <label class="image-drop ${value ? 'has-image' : ''}">
         <input type="file" accept="image/*" data-image-input="${name}" aria-label="${esc(label)}">
-        ${value ? `<img src="${esc(value)}" alt="${esc(label)}">` : `<span class="image-placeholder">${icon('camera')}<span>Add photo</span></span>`}
+        ${value ? `<img src="${esc(value)}" alt="${esc(label)}">` : `<span class="image-placeholder">${icon('camera')}<span data-edit-only>Add photo</span><span data-view-only>No photo</span></span>`}
       </label>
-      <div class="image-actions">
+      <div class="image-actions" data-edit-only>
         <span>${value ? 'Click photo to replace' : 'Click or drop an image'}</span>
         ${value ? `<button type="button" class="link-btn danger" data-remove-image="${name}">Remove</button>` : ''}
       </div>
@@ -528,21 +529,43 @@
   }
   function modalFoot(isEdit, kindLabel) {
     return `<footer class="modal-foot">
-      ${isEdit ? `<button type="button" class="btn danger" data-delete>${icon('trash')}Delete</button>` : ''}
+      ${isEdit ? `<button type="button" class="btn danger" data-delete data-edit-only>${icon('trash')}Delete</button>` : ''}
       <span class="spacer"></span>
-      <button type="button" class="btn ghost" data-close>Cancel</button>
-      <button type="submit" class="btn primary">${isEdit ? 'Save changes' : `Add ${kindLabel}`}</button>
+      <button type="button" class="btn ghost" data-close data-view-only>Close</button>
+      <button type="button" class="btn primary" data-edit data-view-only>${icon('edit')}Edit</button>
+      <button type="button" class="btn ghost" data-cancel-edit data-edit-only>Cancel</button>
+      <button type="submit" class="btn primary" data-edit-only>${isEdit ? 'Save changes' : `Add ${kindLabel}`}</button>
     </footer>`;
+  }
+
+  /**
+   * Switch the open form between read-only viewing and editing.
+   * Existing items open read-only; new items open straight into editing.
+   */
+  function setEditing(on) {
+    form.editing = on;
+    modal.classList.toggle('viewing', !on);
+    $('#modal-title', modal).textContent = on ? `${form.id ? 'Edit' : 'New'} ${form.kind}` : form.title;
+    for (const el of $$('input, select, textarea', modal)) {
+      if (el.matches('select, [type="checkbox"], [type="radio"], [type="file"]')) {
+        el.disabled = !on;
+      } else {
+        el.readOnly = !on;
+        if (!('ph' in el.dataset)) el.dataset.ph = el.placeholder;
+        el.placeholder = on ? el.dataset.ph : '—';
+      }
+    }
+    $('button[type="submit"]', modal).disabled = !on;
   }
 
   // ---- Thread form ----
   const YARDS_HINT = 'Yards remaining.';
   const PERCENT_HINT = 'Percent of a full skein or card. Use more than 100% for extras, e.g. 250% = 2½ skeins.';
-  function openThreadForm(id) {
+  function openThreadForm(id, { edit = !id } = {}) {
     if (modal.open && !confirmDiscard()) return;
     const t = id ? threadById(id) : {};
     if (id && !t) return;
-    form = { kind: 'thread', id: id || null, images: { picture: t.picture || null }, dirty: false };
+    form = { kind: 'thread', id: id || null, title: threadName(t), images: { picture: t.picture || null }, dirty: false };
     const v = (k) => esc(t[k] ?? '');
     const unit = t.amountUnit === 'percent' ? 'percent' : 'yards';
 
@@ -590,7 +613,7 @@
                   ${Object.entries(AMOUNT_UNITS).map(([k, u]) => `<label><input type="radio" name="amountUnit" value="${k}" ${unit === k ? 'checked' : ''}>${u.label}</label>`).join('')}
                 </div>
               </div>
-              <span class="hint">${unit === 'percent' ? PERCENT_HINT : YARDS_HINT}</span>
+              <span class="hint" data-edit-only>${unit === 'percent' ? PERCENT_HINT : YARDS_HINT}</span>
             </div>
             <div class="field span-all"><span class="label">Color family</span>${familyPicker}</div>
           </div>
@@ -602,6 +625,7 @@
       </div>
       ${modalFoot(!!id, 'thread')}
     `);
+    setEditing(edit);
   }
 
   async function saveThread(fd) {
@@ -661,7 +685,7 @@
   const cell = (label, inner, cls = '') => `<label class="cell ${cls}"><span class="cell-label">${label}</span>${inner}</label>`;
   const rowActions = (threadId) => `<div class="row-actions">
       <button type="button" class="icon-btn" data-open-linked title="Open linked thread" aria-label="Open linked thread" ${threadId ? '' : 'disabled'}>${icon('external')}</button>
-      <button type="button" class="icon-btn" data-remove-row title="Remove row" aria-label="Remove row">${icon('close')}</button>
+      <button type="button" class="icon-btn" data-remove-row data-edit-only title="Remove row" aria-label="Remove row">${icon('close')}</button>
     </div>`;
 
   function threadRowHtml(r = {}) {
@@ -682,7 +706,7 @@
     </div>`;
   }
 
-  function openCanvasForm(id) {
+  function openCanvasForm(id, { edit = !id } = {}) {
     if (modal.open && !confirmDiscard()) return;
     const c = id ? canvasById(id) : { status: DEFAULT_STATUS, threads: [], cording: [] };
     if (id && !c) return;
@@ -694,13 +718,13 @@
       </label>`).join('')}
     </div>`;
     form = {
-      kind: 'canvas', id: id || null, dirty: false,
+      kind: 'canvas', id: id || null, title: c.name || 'Untitled canvas', dirty: false,
       images: { picture: c.picture || null, finishedPicture: c.finishedPicture || null },
     };
     const v = (k) => esc(c[k] ?? '');
     const noThreadsHint = state.threads.length
       ? ''
-      : `<p class="note">Tip: add threads in the Threads tab first so you can link them here.</p>`;
+      : `<p class="note" data-edit-only>Tip: add threads in the Threads tab first so you can link them here.</p>`;
 
     openModal(`
       ${modalHead(id ? 'Edit canvas' : 'New canvas')}
@@ -742,7 +766,7 @@
 
         <div class="section">
           <div class="section-head"><h3>Threads</h3>
-            <button type="button" class="btn ghost sm" data-add-row="thread">${icon('plus')}Add thread</button></div>
+            <button type="button" class="btn ghost sm" data-add-row="thread" data-edit-only>${icon('plus')}Add thread</button></div>
           ${noThreadsHint}
           <div class="rows thread-rows">
             <div class="rows-head"><span>Color description</span><span>Item description</span><span>Stitch type</span><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
@@ -752,7 +776,7 @@
 
         <div class="section">
           <div class="section-head"><h3>Cording</h3>
-            <button type="button" class="btn ghost sm" data-add-row="cording">${icon('plus')}Add cording</button></div>
+            <button type="button" class="btn ghost sm" data-add-row="cording" data-edit-only>${icon('plus')}Add cording</button></div>
           <div class="rows cording-rows">
             <div class="rows-head"><span>Strands</span><span>Linked thread</span><span></span><span></span></div>
             <div class="rows" data-rows="cording">${c.cording.map(cordingRowHtml).join('')}</div>
@@ -767,6 +791,7 @@
       ${modalFoot(!!id, 'canvas')}
     `, { wide: true });
     updateRowsEmpty();
+    setEditing(edit);
   }
 
   function updateRowsEmpty() {
@@ -846,7 +871,18 @@
     if (!t || !modal.contains(t)) return;
 
     if (t.matches('[data-close]')) closeModal();
-    else if (t.matches('[data-remove-image]')) {
+    else if (t.matches('[data-edit]')) {
+      setEditing(true);
+      $('.modal-body input:not([type="file"]):not([type="radio"]):not([type="checkbox"])', modal)?.focus({ preventScroll: true });
+    } else if (t.matches('[data-cancel-edit]')) {
+      // Existing item: drop the edits and go back to viewing the saved version. New item: close.
+      if (!form.id) closeModal();
+      else if (confirmDiscard()) {
+        const { kind, id } = form;
+        form.dirty = false;
+        kind === 'thread' ? openThreadForm(id) : openCanvasForm(id);
+      }
+    } else if (t.matches('[data-remove-image]')) {
       form.images[t.dataset.removeImage] = null;
       form.dirty = true;
       refreshImageField(t.dataset.removeImage);
@@ -901,6 +937,7 @@
   modal.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formEl = e.target;
+    if (!form?.editing) return; // Enter in a read-only field shouldn't save
     if (!formEl.reportValidity()) return;
     const btn = $('button[type="submit"]', formEl);
     btn.disabled = true;

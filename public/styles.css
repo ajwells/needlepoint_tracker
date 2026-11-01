@@ -463,3 +463,28 @@ body.signed-out .topbar, body.signed-out main { display: none; }
   .user-menu { margin-left: 0; padding-left: 6px; }
   .auth-card { padding: 26px 20px; }
 }
+
+/* ---------- Read-only view (before pressing Edit) ---------- */
+.modal.viewing [data-edit-only], .modal:not(.viewing) [data-view-only] { display: none !important; }
+.viewing .field input:not([type="radio"]):not([type="checkbox"]):not([type="file"]),
+.viewing .field select, .viewing .field textarea, .viewing .cell input, .viewing .cell select {
+  background: var(--surface-2); border-color: transparent; box-shadow: none;
+  color: var(--text); -webkit-text-fill-color: var(--text); opacity: 1; cursor: default;
+}
+.viewing .field textarea { resize: none; }
+.viewing select { appearance: none; -webkit-appearance: none; }
+.viewing input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.viewing input::-webkit-inner-spin-button, .viewing input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.viewing input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+.viewing input::placeholder, .viewing textarea::placeholder { color: var(--muted); -webkit-text-fill-color: var(--muted); }
+/* Pickers show only the chosen option, or a dash when nothing is chosen. */
+.viewing .family-picker, .viewing .segmented, .viewing .stepper, .viewing .image-drop { pointer-events: none; }
+.viewing .family-picker label:not(:has(input:checked)), .viewing .segmented label:not(:has(input:checked)) { display: none; }
+.viewing .family-picker:not(:has(input:checked))::after, .viewing .segmented:not(:has(input:checked))::after {
+  content: '—'; color: var(--muted); padding: 5px 8px;
+}
+.viewing .image-drop { border-style: solid; border-color: var(--border); }
+/* No photo: a short strip instead of a big empty box. */
+.viewing .image-drop:not(.has-image) { aspect-ratio: auto; height: 56px; }
+.viewing .image-drop:not(.has-image) .image-placeholder { flex-direction: row; font-size: 13px; }
+.viewing .image-drop:not(.has-image) .image-placeholder svg { width: 18px; height: 18px; }
