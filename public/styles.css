@@ -580,3 +580,8 @@ body.signed-out .guest-banner { display: none; }
   background: transparent; padding: 9px 0; border-radius: 0; text-overflow: ellipsis;
 }
 .modal.viewing.list-table .rows-empty { border-radius: 0; }
+
+/* Gifted canvases */
+.badge.gifted { color: var(--accent); }
+.card-media .corner .badge.gifted { color: var(--accent); }
+.badge.gifted svg { width: 12px; height: 12px; }

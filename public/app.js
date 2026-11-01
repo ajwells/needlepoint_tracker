@@ -38,6 +38,7 @@
     spool: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M6 7h12M6 17h12M9 10l6 2M9 13l6 2"/>',
     canvas: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
     edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+    gift: '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   };
   const icon = (name) =>
@@ -444,7 +445,8 @@
       .filter((c) => {
         if (state.canvasStatus && c.status !== state.canvasStatus) return false;
         if (!q) return true;
-        const hay = [c.name, c.designer, c.shopName, c.notes, c.yearFinished, c.meshSize, STATUS_LABEL[c.status]].join(' ').toLowerCase();
+        const hay = [c.name, c.designer, c.shopName, c.notes, c.yearFinished, c.meshSize, STATUS_LABEL[c.status],
+          c.finishType, c.giftedTo, isGifted(c) ? 'gifted' : ''].join(' ').toLowerCase();
         return q.split(/\s+/).every((w) => hay.includes(w));
       })
       .sort((a, b) => (b.datePurchased || '').localeCompare(a.datePurchased || '') || (a.name || '').localeCompare(b.name || ''));
@@ -464,10 +466,15 @@
     }
   }
 
+  /** A canvas counts as gifted once someone is named in "Gifted to". */
+  const isGifted = (c) => !!(c.giftedTo && c.giftedTo.trim());
+
   function canvasCard(c) {
     const img = c.finishedPicture || c.picture;
-    const status = statusBadge(c);
+    const status = statusBadge(c) + (isGifted(c)
+      ? `<span class="badge gifted" title="Gifted to ${esc(c.giftedTo)}">${icon('gift')}Gifted</span>` : '');
     const meta = [
+      c.finishType ? `<span class="badge">${esc(c.finishType)}</span>` : '',
       c.meshSize ? `<span class="badge">${c.meshSize} mesh</span>` : '',
       c.threads.length ? `<span class="badge">${plural(c.threads.length, 'thread')}</span>` : '',
       c.price != null ? `<span class="badge">${currency.format(c.price)}</span>` : '',
@@ -802,6 +809,9 @@
                 ${safeHref(c.shopUrl) ? `<a class="icon-btn" href="${esc(c.shopUrl)}" target="_blank" rel="noopener noreferrer" title="Visit shop" aria-label="Visit shop">${icon('external')}</a>` : ''}
               </div>
             </label>
+            ${field('Finish type', `<input name="finishType" value="${v('finishType')}" placeholder="e.g. ornament, pillow, framed" autocomplete="off">`)}
+            ${field('Gifted to', `<input name="giftedTo" value="${v('giftedTo')}" placeholder="e.g. Mom" autocomplete="off">
+              <span class="hint" data-edit-only>Filling this in marks the canvas as gifted.</span>`)}
           </div>
         </div>
 
@@ -907,6 +917,8 @@
       shopName: str(fd.get('shopName')),
       shopUrl: normalizeUrl(fd.get('shopUrl')),
       meshSize: intOrNull(fd.get('meshSize')),
+      finishType: str(fd.get('finishType')),
+      giftedTo: str(fd.get('giftedTo')),
       threads,
       cording,
       notes: String(fd.get('notes') || ''),
@@ -1139,13 +1151,14 @@
 
   function canvasesCsv() {
     const header = ['Name', 'Status', 'Designer', 'Needlepoint shop', 'Shop website', 'Mesh size', 'Date purchased',
-      'Price', 'Year finished', 'Threads', 'Cording', 'Cording total strands', 'Notes', 'Added', 'Updated'];
+      'Price', 'Year finished', 'Finish type', 'Gifted', 'Gifted to', 'Threads', 'Cording', 'Cording total strands', 'Notes', 'Added', 'Updated'];
     const strands = (n) => (n != null ? `${n} strand${n === 1 ? '' : 's'}` : '');
     const rows = [...state.canvases]
       .sort((a, b) => STATUS_KEYS.indexOf(a.status) - STATUS_KEYS.indexOf(b.status) || (a.name || '').localeCompare(b.name || ''))
       .map((c) => [
         c.name, STATUS_LABEL[c.status], c.designer, c.shopName, c.shopUrl, c.meshSize ? `${c.meshSize} mesh` : '',
         c.datePurchased, c.price != null ? c.price.toFixed(2) : '', c.yearFinished,
+        c.finishType, isGifted(c) ? 'Yes' : 'No', c.giftedTo,
         // One line per thread row inside the cell: "Dark green: holly leaves, basketweave, 2 strands - DMC #890 Green"
         c.threads.map((r) => {
           const label = [r.colorDescription, r.itemDescription].filter(Boolean).join(': ');
