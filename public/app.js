@@ -511,8 +511,28 @@
     return true;
   }
 
+  /**
+   * How a read-only canvas shows its thread and cording lists: 'table' (default; one line per row,
+   * scrolls sideways on narrow screens) or 'cards' (stacked). Remembered per device.
+   */
+  const LIST_LAYOUT_KEY = 'needlepoint-list-layout';
+  const listLayout = {
+    get: () => { try { return localStorage.getItem(LIST_LAYOUT_KEY) === 'cards' ? 'cards' : 'table'; } catch { return 'table'; } },
+    set: (v) => { try { localStorage.setItem(LIST_LAYOUT_KEY, v); } catch {} },
+  };
+  function applyListLayout(layout) {
+    modal.classList.toggle('list-table', layout === 'table');
+    // Full linked-thread name on hover, for names too long for the column.
+    $$('[data-rows] select[name="threadId"]', modal).forEach((s) => { s.title = s.selectedOptions[0]?.textContent || ''; });
+    $$('[data-list-layout]', modal).forEach((b) => {
+      b.classList.toggle('active', b.dataset.listLayout === layout);
+      b.setAttribute('aria-pressed', String(b.dataset.listLayout === layout));
+    });
+  }
+
   function openModal(html, { wide = false } = {}) {
     modal.classList.toggle('wide', wide);
+    modal.classList.remove('list-table');
     modal.innerHTML = `<form class="modal-form" id="modal-form" novalidate>${html}</form>`;
     if (!modal.open) modal.showModal();
     $('.modal-body', modal).scrollTop = 0;
@@ -787,6 +807,10 @@
 
         <div class="section">
           <div class="section-head"><h3>Threads</h3>
+            <div class="layout-toggle" role="group" aria-label="Thread and cording list layout" data-view-only>
+              <button type="button" data-list-layout="table">Table</button>
+              <button type="button" data-list-layout="cards">Cards</button>
+            </div>
             <button type="button" class="btn ghost sm" data-add-row="thread" data-edit-only>${icon('plus')}Add thread</button></div>
           ${noThreadsHint}
           <div class="rows thread-rows">
@@ -814,6 +838,7 @@
     `, { wide: true });
     updateRowsEmpty();
     updateCordingTotal();
+    applyListLayout(listLayout.get());
     setEditing(edit);
   }
 
@@ -911,7 +936,10 @@
     if (!t || !modal.contains(t)) return;
 
     if (t.matches('[data-close]')) closeModal();
-    else if (t.matches('[data-edit]')) {
+    else if (t.matches('[data-list-layout]')) {
+      listLayout.set(t.dataset.listLayout);
+      applyListLayout(t.dataset.listLayout);
+    } else if (t.matches('[data-edit]')) {
       setEditing(true);
       $('.modal-body input:not([type="file"]):not([type="radio"]):not([type="checkbox"])', modal)?.focus({ preventScroll: true });
     } else if (t.matches('[data-cancel-edit]')) {

@@ -544,3 +544,39 @@ body.signed-out .guest-banner { display: none; }
 .cording-total { margin-top: 10px; font-size: 14px; }
 .cording-total strong { font-weight: 650; }
 .cording-total .muted { font-size: 12.5px; }
+
+/* ---------- Read-only canvas lists: Table / Cards ---------- */
+.layout-toggle { display: inline-flex; padding: 3px; background: var(--surface-2); border-radius: 999px; margin-left: auto; }
+.layout-toggle button {
+  appearance: none; border: 0; background: transparent; font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--muted); padding: 4px 12px; border-radius: 999px; cursor: pointer;
+}
+.layout-toggle button.active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+.layout-toggle button:focus-visible { outline: 2px solid var(--accent); }
+
+/* Table: every column on one line; the list scrolls sideways when the window is narrow. */
+.modal.viewing.list-table .thread-rows, .modal.viewing.list-table .cording-rows {
+  overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); gap: 0;
+}
+.modal.viewing.list-table .thread-rows .rows, .modal.viewing.list-table .cording-rows .rows { gap: 0; }
+.modal.viewing.list-table .thread-rows { --table-min: 900px; }
+.modal.viewing.list-table .cording-rows { --table-min: 560px; }
+.modal.viewing.list-table .thread-rows .rows-head, .modal.viewing.list-table .thread-rows .row {
+  grid-template-columns: minmax(120px, 1.1fr) minmax(130px, 1.1fr) minmax(130px, 1fr) 64px minmax(330px, 1.7fr) 34px;
+}
+.modal.viewing.list-table .cording-rows .rows-head, .modal.viewing.list-table .cording-rows .row {
+  grid-template-columns: 70px 70px minmax(330px, 1fr) 34px;
+}
+.modal.viewing.list-table .rows-head, .modal.viewing.list-table .row {
+  display: grid; gap: 0 12px; min-width: var(--table-min); padding: 0 10px; border: 0; border-radius: 0;
+}
+.modal.viewing.list-table .rows-head { padding-top: 9px; padding-bottom: 9px; background: var(--surface-2); }
+.modal.viewing.list-table .row { border-top: 1px solid var(--border); }
+.modal.viewing.list-table .row .cell-label { display: none; }
+.modal.viewing.list-table .row .cell.wide { grid-column: auto; }
+.modal.viewing.list-table .row .row-actions { display: contents; }
+.modal.viewing.list-table .cell input, .modal.viewing.list-table .cell select {
+  background: transparent; padding: 9px 0; border-radius: 0; text-overflow: ellipsis;
+}
+.modal.viewing.list-table .rows-empty { border-radius: 0; }
