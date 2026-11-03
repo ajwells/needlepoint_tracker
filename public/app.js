@@ -325,6 +325,12 @@
   function threadName(t) {
     return [t.brand, t.color].filter(Boolean).join(' ') || 'Untitled thread';
   }
+  /** Lowercase text a thread search looks through. Codes also match with a "#", as labels show them. */
+  function threadSearchText(t) {
+    return [t.brand, t.material, t.color, t.code, t.code ? `#${t.code}` : '', ...t.lots.map((l) => l.dyeLot), t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
+      .join(' ')
+      .toLowerCase();
+  }
   function threadOptionLabel(t) {
     let s = t.brand || 'Untitled';
     if (t.code) s += ` #${t.code}`;
@@ -405,9 +411,7 @@
       if (state.threadStock && isOutOfStock(t) !== (state.threadStock === 'out')) return false;
       if (state.threadFamily && t.colorFamily !== state.threadFamily) return false;
       if (!q) return true;
-      const hay = [t.brand, t.material, t.color, t.code, ...t.lots.map((l) => l.dyeLot), t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
-        .join(' ')
-        .toLowerCase();
+      const hay = threadSearchText(t);
       return q.split(/\s+/).every((w) => hay.includes(w));
     });
     const sorters = {
@@ -547,6 +551,8 @@
   const modal = $('#modal');
   /** Current form session: { kind: 'thread'|'canvas', id, images: {}, dirty } */
   let form = null;
+  /** The canvas form waiting behind a thread being created from one of its rows: { form, node, picker, scrollTop } */
+  let returnTo = null;
 
   function confirmDiscard() {
     return !form?.dirty || confirm('Discard unsaved changes?');
@@ -554,6 +560,7 @@
 
   function closeModal(force = false) {
     if (!force && !confirmDiscard()) return false;
+    if (returnTo) { returnToCanvasForm(); return true; }
     modal.close();
     modal.innerHTML = '';
     form = null;
@@ -572,7 +579,7 @@
   function applyListLayout(layout) {
     modal.classList.toggle('list-table', layout === 'table');
     // Full linked-thread name on hover, for names too long for the column.
-    $$('[data-rows] select[name="threadId"]', modal).forEach((s) => { s.title = s.selectedOptions[0]?.textContent || ''; });
+    $$('[data-rows] [data-thread-input]', modal).forEach((i) => { i.title = i.value; });
     $$('[data-list-layout]', modal).forEach((b) => {
       b.classList.toggle('active', b.dataset.listLayout === layout);
       b.setAttribute('aria-pressed', String(b.dataset.listLayout === layout));
@@ -685,7 +692,9 @@
 
     const used = id ? usageFor(buildUsage(), id) : [];
     const usedHtml = !id
-      ? `<p class="note">Once saved, this thread can be linked from a canvas's thread or cording list, and those canvases will show up here automatically.</p>`
+      ? `<p class="note">${returnTo
+          ? 'Once saved, this thread will be linked to the canvas row you came from. Save the canvas to keep the link.'
+          : "Once saved, this thread can be linked from a canvas's thread or cording list, and those canvases will show up here automatically."}</p>`
       : used.length
         ? `<div class="used-list">${used.map(({ canvas: c, roles }) => {
             const img = c.finishedPicture || c.picture;
@@ -763,6 +772,7 @@
     const i = state.threads.findIndex((x) => x.id === t.id);
     if (i >= 0) state.threads[i] = t;
     else state.threads.push(t);
+    form.savedId = t.id;
     return existing ? 'Thread updated' : 'Thread added';
   }
 
@@ -789,11 +799,103 @@
   }
 
   // ---- Canvas form ----
-  function threadOptions(selected) {
-    const sorted = [...state.threads].sort(compareThreads);
-    return `<option value="">— Not linked —</option>${sorted
-      .map((t) => `<option value="${t.id}" ${t.id === selected ? 'selected' : ''}>${esc(threadOptionLabel(t))}</option>`)
-      .join('')}`;
+  /** Searchable thread picker for a canvas row. The hidden input holds the linked thread's id. */
+  function threadPickerHtml(threadId) {
+    const t = threadId && threadById(threadId);
+    return `<div class="thread-picker" data-thread-picker>
+      <input type="hidden" name="threadId" value="${t ? esc(t.id) : ''}">
+      <input type="text" data-thread-input value="${t ? esc(threadOptionLabel(t)) : ''}" placeholder="Search threads…" autocomplete="off"
+        role="combobox" aria-label="Linked thread" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false">
+      <div class="thread-menu" role="listbox" aria-label="Threads" hidden></div>
+    </div>`;
+  }
+
+  function threadMenuHtml(query, selectedId) {
+    const q = query.trim();
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = state.threads
+      .filter((t) => {
+        const hay = threadSearchText(t);
+        return words.every((w) => hay.includes(w));
+      })
+      .sort(compareThreads);
+    const option = (id, label) => `<button type="button" class="thread-option" role="option" tabindex="-1" data-pick-thread="${esc(id)}"
+      aria-selected="${id === selectedId}">${esc(label)}</button>`;
+    return `${!q && selectedId ? option('', '— Not linked —') : ''}
+      ${matches.map((t) => option(t.id, threadOptionLabel(t))).join('')}
+      ${matches.length ? '' : `<p class="thread-menu-empty">${q ? `No threads match “${esc(q)}”.` : 'No threads yet.'}</p>`}
+      <button type="button" class="thread-option thread-create" role="option" tabindex="-1" aria-selected="false" data-create-thread>${icon('plus')}Create new thread</button>`;
+  }
+
+  function setActiveThreadOption(picker, option) {
+    const input = $('[data-thread-input]', picker);
+    $$('.thread-option.active', picker).forEach((o) => o.classList.remove('active'));
+    if (!option) { input.removeAttribute('aria-activedescendant'); return; }
+    option.classList.add('active');
+    input.setAttribute('aria-activedescendant', option.id);
+    option.scrollIntoView({ block: 'nearest' });
+  }
+
+  function openThreadMenu(picker, query = '') {
+    const menu = $('.thread-menu', picker);
+    menu.innerHTML = threadMenuHtml(query, $('[name="threadId"]', picker).value);
+    $$('.thread-option', menu).forEach((o, i) => { o.id = `thread-option-${i}`; });
+    menu.hidden = false;
+    menu.scrollTop = 0;
+    $('[data-thread-input]', picker).setAttribute('aria-expanded', 'true');
+    menu.scrollIntoView({ block: 'nearest' });
+    // While searching, Enter takes the top match. Otherwise start from the current link.
+    setActiveThreadOption(picker, query.trim() ? $('.thread-option', menu) : $('[aria-selected="true"]', menu));
+  }
+
+  /** Close the menu; whatever was typed gives way to the name of the linked thread. */
+  function closeThreadMenu(picker) {
+    const menu = $('.thread-menu', picker);
+    const input = $('[data-thread-input]', picker);
+    const t = threadById($('[name="threadId"]', picker).value);
+    menu.hidden = true;
+    menu.innerHTML = '';
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    input.value = t ? threadOptionLabel(t) : '';
+    input.title = input.value;
+  }
+
+  /** Link a row to a thread. A different thread has different dye lots, so the ticked ones are cleared. */
+  function setRowThread(picker, id) {
+    const hidden = $('[name="threadId"]', picker);
+    if (hidden.value === id) return;
+    hidden.value = id;
+    form.dirty = true;
+    picker.closest('.row').querySelector('[data-open-linked]').disabled = !id;
+    picker.closest('.linked-cell').querySelector('[data-lot-picker]').innerHTML = lotPickerHtml(id);
+  }
+
+  /** Swap the canvas form for a new thread form, keeping the canvas's unsaved edits to come back to. */
+  function createThreadFromRow(picker) {
+    closeThreadMenu(picker);
+    const node = modal.firstElementChild;
+    returnTo = { form, node, picker, scrollTop: $('.modal-body', modal).scrollTop };
+    node.remove();
+    form = null;
+    openThreadForm();
+    $('[name="brand"]', modal).focus();
+  }
+
+  /** Back to the waiting canvas form. If the thread was saved, the row is linked to it. */
+  function returnToCanvasForm() {
+    const { form: canvasForm, node, picker, scrollTop } = returnTo;
+    const savedId = form?.savedId;
+    returnTo = null;
+    form = canvasForm;
+    modal.classList.add('wide');
+    modal.replaceChildren(node);
+    applyListLayout(listLayout.get());
+    setEditing(true);
+    $('.modal-body', modal).scrollTop = scrollTop;
+    if (savedId) setRowThread(picker, savedId);
+    closeThreadMenu(picker);
+    $('[data-thread-input]', picker).focus({ preventScroll: true });
   }
 
   const cell = (label, inner, cls = '') => `<label class="cell ${cls}"><span class="cell-label">${label}</span>${inner}</label>`;
@@ -806,9 +908,9 @@
     return t.lots.map((l) => `<label><input type="checkbox" name="rowLot" value="${esc(l.id)}" ${selected.includes(l.id) ? 'checked' : ''}>
       <span class="chip">${esc(lotLabel(l))}${l.amountLeft != null ? ` <span class="muted">${esc(fmtLotAmount(l))}</span>` : ''}</span></label>`).join('');
   }
-  /** "Linked thread" cell: thread dropdown plus the dye lots used. A div, not a label, since it holds several controls. */
+  /** "Linked thread" cell: thread picker plus the dye lots used. A div, not a label, since it holds several controls. */
   const linkedCell = (r) => `<div class="cell wide linked-cell"><span class="cell-label">Linked thread &amp; dye lots</span>
-      <select name="threadId" aria-label="Linked thread">${threadOptions(r.threadId)}</select>
+      ${threadPickerHtml(r.threadId)}
       <div class="family-picker lot-picker" role="group" aria-label="Dye lots used" data-lot-picker>${lotPickerHtml(r.threadId, r.dyeLots || [])}</div>
     </div>`;
   const rowActions = (threadId) => `<div class="row-actions">
@@ -854,9 +956,6 @@
       images: { picture: c.picture || null, finishedPicture: c.finishedPicture || null, finishedBackPicture: c.finishedBackPicture || null },
     };
     const v = (k) => esc(c[k] ?? '');
-    const noThreadsHint = state.threads.length
-      ? ''
-      : `<p class="note" data-edit-only>Tip: add threads in the Threads tab first so you can link them here.</p>`;
 
     openModal(`
       ${modalHead(id ? 'Edit canvas' : 'New canvas')}
@@ -901,7 +1000,6 @@
               <button type="button" data-list-layout="cards">Cards</button>
             </div>
             <button type="button" class="btn ghost sm" data-add-row="thread" data-edit-only>${icon('plus')}Add thread</button></div>
-          ${noThreadsHint}
           <div class="rows thread-rows">
             <div class="rows-head"><span>Color description</span><span>Item description</span><span>Specialty stitch type</span><span>Strands</span><span>Linked thread &amp; dye lots</span><span></span><span></span></div>
             <div class="rows" data-rows="thread">${c.threads.map(threadRowHtml).join('')}</div>
@@ -1025,14 +1123,57 @@
   // Modal events
   // ---------------------------------------------------------------------------
   modal.addEventListener('cancel', (e) => { e.preventDefault(); closeModal(); });
-  modal.addEventListener('mousedown', (e) => { modal._downOnBackdrop = e.target === modal; });
+  modal.addEventListener('mousedown', (e) => {
+    modal._downOnBackdrop = e.target === modal;
+    // Keep focus in the search box, so choosing from the menu doesn't count as leaving it.
+    if (e.target.closest('.thread-menu')) e.preventDefault();
+  });
+  modal.addEventListener('focusout', (e) => {
+    if (e.target.matches('[data-thread-input]')) closeThreadMenu(e.target.closest('[data-thread-picker]'));
+  });
+  modal.addEventListener('keydown', (e) => {
+    if (!e.target.matches('[data-thread-input]') || e.target.readOnly) return;
+    const picker = e.target.closest('[data-thread-picker]');
+    const menu = $('.thread-menu', picker);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (menu.hidden) { openThreadMenu(picker); return; }
+      const options = $$('.thread-option', menu);
+      const i = options.indexOf($('.thread-option.active', menu));
+      const next = e.key === 'ArrowDown' ? i + 1 : (i < 0 ? 0 : i) - 1;
+      setActiveThreadOption(picker, options[(next + options.length) % options.length]);
+    } else if (e.key === 'Enter') {
+      e.preventDefault(); // Enter here chooses a thread; it never saves the canvas.
+      if (menu.hidden) openThreadMenu(picker);
+      else if ($('.thread-option.active', menu)) $('.thread-option.active', menu).click();
+      else closeThreadMenu(picker);
+    } else if (e.key === 'Escape' && !menu.hidden) {
+      e.preventDefault(); // Close only the menu, not the whole form.
+      closeThreadMenu(picker);
+    }
+  });
   modal.addEventListener('click', (e) => {
     if (e.target === modal && modal._downOnBackdrop) { closeModal(); return; }
+    const search = e.target.closest('[data-thread-input]');
+    if (search) {
+      const picker = search.closest('[data-thread-picker]');
+      if (!search.readOnly && $('.thread-menu', picker).hidden) {
+        openThreadMenu(picker);
+        search.select();
+      }
+      return;
+    }
     const t = e.target.closest('button, [data-open-canvas], [data-open-thread]');
     if (!t || !modal.contains(t)) return;
 
     if (t.matches('[data-close]')) closeModal();
-    else if (t.matches('[data-list-layout]')) {
+    else if (t.matches('[data-pick-thread]')) {
+      const picker = t.closest('[data-thread-picker]');
+      setRowThread(picker, t.dataset.pickThread);
+      closeThreadMenu(picker);
+    } else if (t.matches('[data-create-thread]')) {
+      createThreadFromRow(t.closest('[data-thread-picker]'));
+    } else if (t.matches('[data-list-layout]')) {
       listLayout.set(t.dataset.listLayout);
       applyListLayout(t.dataset.listLayout);
     } else if (t.matches('[data-edit]')) {
@@ -1082,13 +1223,18 @@
   });
 
   modal.addEventListener('input', (e) => {
+    // Searching changes nothing until a thread is chosen.
+    if (e.target.matches('[data-thread-input]')) {
+      openThreadMenu(e.target.closest('[data-thread-picker]'), e.target.value);
+      return;
+    }
     if (form) form.dirty = true;
     if (e.target.closest('[data-rows="cording"]')) updateCordingTotal();
   });
   modal.addEventListener('change', async (e) => {
-    if (!form) return;
-    form.dirty = true;
     const el = e.target;
+    if (!form || el.matches('[data-thread-input]')) return;
+    form.dirty = true;
     if (el.matches('[data-image-input]')) {
       const file = el.files?.[0];
       if (!file) return;
@@ -1105,10 +1251,6 @@
       $$('.stepper .step', modal).forEach((s, i) => s.classList.toggle('done', i < idx));
       const year = $('[name="yearFinished"]', modal);
       if (el.value === 'finished' && !year.value) year.value = new Date().getFullYear();
-    } else if (el.matches('select[name="threadId"]')) {
-      // New thread, new set of dye lots to choose from.
-      el.closest('.row').querySelector('[data-open-linked]').disabled = !el.value;
-      el.closest('.linked-cell').querySelector('[data-lot-picker]').innerHTML = lotPickerHtml(el.value);
     }
   });
 
@@ -1124,7 +1266,8 @@
       const msg = form.kind === 'thread' ? await saveThread(fd) : await saveCanvas(fd);
       closeModal(true);
       render();
-      toast(msg);
+      // Back on a canvas form the new link in the row shows it worked, and a toast would sit behind the dialog.
+      if (!modal.open) toast(msg);
     } catch (err) {
       console.error(err);
       btn.disabled = false;

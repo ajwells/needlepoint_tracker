@@ -377,6 +377,30 @@ svg.icon { width: 18px; height: 18px; flex: none; }
 .row .cell { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .row .cell-label { display: none; font-size: 12px; font-weight: 600; color: var(--muted); }
 .cell input, .cell select { padding: 8px 10px; }
+
+/* searchable thread picker (canvas rows) */
+.thread-picker { position: relative; }
+.thread-picker input { text-overflow: ellipsis; }
+.thread-menu {
+  position: absolute; z-index: 5; top: calc(100% + 4px); right: 0;
+  width: max(100%, 380px); max-height: 280px; overflow-y: auto; scroll-padding-bottom: 44px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.thread-option {
+  display: block; width: 100%; padding: 9px 12px; border: 0; background: transparent;
+  font: inherit; font-size: 14px; color: inherit; text-align: left; cursor: pointer;
+}
+.thread-option:hover, .thread-option.active { background: var(--accent-soft); }
+.thread-option[aria-selected="true"] { font-weight: 600; }
+.thread-create {
+  position: sticky; bottom: 0; display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border-top: 1px solid var(--border); color: var(--accent); font-weight: 600;
+}
+.thread-create svg { width: 16px; height: 16px; flex: none; }
+.thread-menu-empty { padding: 12px; font-size: 14px; color: var(--muted); }
+@media (max-width: 860px) {
+  .thread-menu { width: 100%; }
+}
 .rows-empty { font-size: 14px; color: var(--muted); padding: 14px; text-align: center; background: var(--surface-2); border-radius: var(--radius-sm); }
 
 /* used-in list */

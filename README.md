@@ -28,7 +28,7 @@ Open http://localhost:5173, then create an account or continue as a guest. When 
 - Track status from wish list through purchased, kitted, in progress and stitched to finished.
 - Add pictures of the canvas and of the finished front and back.
 - Record the designer, shop, mesh size, purchase date, price, year finished, finish type, who it was gifted to, and notes.
-- Build a thread list with links to your threads and the dye lots used.
+- Build a thread list with links to your threads and the dye lots used. Search for the thread to link, or create a new one without leaving the canvas.
 - Build a cording list with a total size: the sum of strands × bundles for each thread. An empty bundle count is treated as 1.
 - Search by name, designer, shop, finish type and more. Searching "gifted" finds gifted canvases.
 
