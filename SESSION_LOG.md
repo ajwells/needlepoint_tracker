@@ -1,13 +1,13 @@
 # Session log
 
-Handover notes for future working sessions. Covers the build from 2026-10-31 to 2026-11-03, up to commit `b333064`. For what the app does and how to run it, see `README.md`. This file records how it got here and why.
+Handover notes for future working sessions. Covers the build from 2026-10-31 to 2026-11-04, up to commit `0edd07a`, plus the uncommitted thread color table. For what the app does and how to run it, see `README.md`. This file records how it got here and why.
 
 This repo has a GitHub remote, so keep personal data out of this file: no network addresses, passwords, or spreadsheet contents.
 
 ## Current state
 
-- All requested work is finished and pushed. `master` matches `origin/master`.
-- **Next step:** nothing is pending. See [Open items](#open-items) for optional follow-ups.
+- Committed work is pushed. `public/thread-colors.json`, the app changes that read it, and this update are not committed yet.
+- **Next step:** the automatic retailer collection stopped on 2026-11-05 with only Essentials page 1 collected. All nine Flying Needles lines are in the table, from pages the user saved into `scripts/thread-colors/saved-pages/`. Milan 1xxx and 2xxx differ only by package type and yardage, as the user confirmed, so the table gives each 2xxx code the same color as its 1xxx code, keeping both numbers. Merge any later pages with `merge-retailer.mjs`. See [Thread color table](#thread-color-table).
 - The user commits and pushes their own work. Only commit when asked.
 - During this session the server ran from a Claude Code background task with `ALLOW_SIGNUP=false`. Such a task ends with its session, so check whether a server is running on 5173 before starting one.
 
@@ -33,6 +33,7 @@ This repo has a GitHub remote, so keep personal data out of this file: no networ
 
 - `needlepoint-guest`: this browser is in guest mode.
 - `needlepoint-list-layout`: the Table or Cards choice for read-only canvas lists.
+- `needlepoint-thread-stand-in`: what threads without a photo show, `color` (approximate color, the default) or `picture` (example picture). Set from the "No photo" menu on the Threads page.
 
 ### Data model
 
@@ -89,6 +90,7 @@ Dates are commit dates. The commit column is blank for work that went into a bro
 | 11-01 | Shop website field removed | `2068e66` |
 | 11-01 | Finished canvas front and back pictures | `6b30c7b` |
 | 11-01 | README | `b333064` |
+| 11-03 | Search and new thread creation in canvas thread lists | `0edd07a` |
 
 The temporary `public/downloads/` page for moving import files to a phone was later deleted by the user.
 
@@ -157,6 +159,70 @@ The temporary `public/downloads/` page for moving import files to a phone was la
 - Long linked-thread names can be cut off with "…" in the read-only table. Hovering on desktop shows the full name.
 - One imported canvas has blank cording bundles, because its spreadsheet entry gives "3 bundles" across 2 colors without saying how they split. The converter's output flags it.
 - `npm run convert-csv` and `convert-wishlist` fail on a fresh clone, because the converter and spreadsheets are ignored by git.
+
+## Thread color table
+
+`public/thread-colors.json` gives an approximate color by brand and code, for threads with no photo. It lists whole product lines, not just owned threads, so future additions are covered.
+
+The app loads it at startup with `loadColorTable` and reads it with `tableColor` in `public/app.js`. Cards use the photo, then the table color with an "Approx. color" badge, then the family color, then the spool icon. An open thread with a table color and no photo shows a note under its picture. The file is optional, so `file://` and failed loads fall back to family colors.
+
+Not built yet from the original plan: a manual color field, and word matching on a thread's own name or canvas description.
+
+The file's `meta` block holds the lookup rules and sources. It has 2,246 entries, and 2,061 have a color. That count includes alias entries: 90 for Very Velvet's Petite numbering and 17 for Kreinik codes without their `-01` style suffix.
+
+### Sources by brand
+
+| Brand or line | Source | What it provides | Method | Status |
+| --- | --- | --- | --- | --- |
+| DMC | `github.com/makebead/craft-color-codes`, `data/json/dmc-floss.json` | Hex by code, 489 colors | `dataset` | Done. CC BY 4.0, so keep the attribution |
+| Vineyard Silk | `vineyardsilk.com/photo-galleries/vineyard-silk-classic-gallery/` and `vineyard-silk-tone-gallery/` | Photo for each code, with code and name in the filename | `photo` | 226 done. Other prefixes aren't in these galleries |
+| Kreinik | `kreinik.com/store/Tapestry-12-Braid.html` | Photo for each code, no names parsed | `photo` | #12 Braid only. Other sizes have codes this page lacks |
+| Silk & Ivory | `brownpaperpackages.com/Silk-and-Ivory/?family=...`, then `subfamilies.asp?sub=...` | Caption `Name (#N)` followed by its photo | `photo` | 250 done, 7 with no color. Its terms restrict reproduction, so store colors only |
+| Splendor, Very Velvet, Neon Rays, Silk Lame Braid, Entice, Fuzzy Stuff | `rainbowgallery.com/product/<slug>/` | Code and name lists. Photos show whole cards | `name` | Done. Colors are rough |
+| Petite Very Velvet | Rainbow Gallery's Very Velvet page | Maker's rule: V201 becomes V601 | `name` | V2xx codes only |
+| Essentials, Pepper Pot, Milan, Planet Earth, Bella Lusso, Petite Sparkle Rays, Neon Rays+, Silk Lame Plus | `theflyingneedles.com/collections/<handle>` | Photo per color. Filename holds code and name, such as `essentials-501-black` | `photo`, from pages the user saved. 57 photos that misled the calculation were redone from hand-marked areas | Blocked by rate limits, see below |
+| Snow, Waterlilies | Caron, `caron-net.com` | Charts by code range | Not collected | Caron's `robots.txt` blocks Anthropic crawlers, so stay off it |
+
+Flying Needles collection handles: `essentials`, `pepper-pot`, `milan`, `planet-earth-wool`, `planet-earth-silk-ply`, `bella-lusso-wool-1`, `neon-rays-plus`, `petite-sparkle-rays`, `silk-lame-plus`. Other retailers checked: Stitching Fox (Rainbow Gallery variant titles give code and name, such as `S872-MIDNIGHT BLUE`) and Morgan Julia Designs (per-color Milan products).
+
+### Issues
+
+- **Shopify rate limits:** The Flying Needles, Stitching Fox and Morgan Julia all returned 429. At The Flying Needles, both `products.json` and normal collection pages at one per 30 seconds were limited, and waits grew from 120 to 240 seconds. All three being on Shopify suggests a shared limit by IP address, but that's unconfirmed. Single requests sometimes succeed. A 6-minute pace was still refused. So was `slow-collect.mjs` at 20 minutes per page with waits growing to 2 hours: Essentials page 2 got 6 refusals in a row between 9:10pm and 5:10am on 2026-11-04 and 05, and the run stopped. More slowing down is unlikely to help. Don't disguise requests to look like a person. Use another source, pages saved by the user, or ask the shop. `merge-retailer.mjs` reads `fn-pages/<handle>-<page>.html`, and the Shopify image host wasn't refused at one image per 15 seconds. Pages saved with Ctrl+S, "Webpage, Complete", work: copy the page to `fn-pages/<handle>-<page>.html` and the images in its `_files` folder to `fn-images/`, so nothing is downloaded. Those images are small thumbnails but give good colors. Some are named `.webp` but are really JPEG, which the script now accepts. 583 Limoncello came out a dull olive, which the user confirmed is correct. Import saved pages with `scripts/thread-colors/import-saved.mjs <savedDir> <workDir> <checkDir>`, which names them `<handle>-<page>.html` and copies their pictures, then check with `merge-retailer.mjs --sheet-all`, which shows every color in filename order and writes `fn-sheet.txt` listing each position. Pepper Pot 158 Enamel, 262 Pewter and 263 Elderberry came out wrong (a small skein on a card, and labelled skeins), so they have names but no color. Pepper Pot Silk Variegated files (`pepper-pot-silk-variegated-<code>`) share codes and names with the solid colors and are skipped. A saved page can repeat the previous page's pictures, which is harmless.
+
+#### Saved pages, all lines (2026-11-05)
+
+- Use `scripts/thread-colors/merge-saved.mjs <savedDir> <workDir> <tablePath> [--sheet] [--write] [--only=Brand,...]`. It reads each product card's picture and alt text, such as "Milan 1584 Grapefruit", so filenames don't matter. Milan, Petite Sparkle Rays and Silk Lame Plus pictures have no code in their names. It only adds codes the table doesn't have, and `--sheet` writes `saved-sheet.png` and `saved-sheet.txt` in table order. Split tall sheets with a small script before viewing.
+- Don't trust the `collection_viewed` product list in a saved page. When the shopper moves between pages without a reload, it still lists the first page. The cards are right.
+- Browser file names vary, such as "Milan – Page 3 – The Flying Needles" and "Essentials - The Flying Needles – Page 2".
+- The color calculation is in `color-extract.mjs`, shared by both merge scripts. Small skeins on white now use pixels across the whole photo, keeping the 60% least like the backdrop. Pale and white skeins on white still come out light grey.
+- Photos that misled it, later fixed by hand-marked boxes (see below): pale threads on Rainbow Gallery style cards (Essentials 833–836, 842, 861), small skeins on wooden tables (most Planet Earth 6 Ply V13xx, and 1225–1232), labelled skeins where the label dominates (Bella Lusso 278, 563, 723, 967; Pepper Pot 158, 262, 263), and a few others (Pepper Pot 247, Neon Rays+ NP47 and NP300, Planet Earth Silk 1041, 1155, V1005–V1117). The user confirmed Essentials 583 Limoncello's olive is right.
+- Left out: Pepper Pot Silk Variegated, which reuses the solid colors' codes and names.
+- Milan's names match Essentials, one number apart: Milan 1584 Grapefruit is Essentials 584 Grapefruit.
+- **Hand-marked boxes:** `thread-boxes.mjs <savedDir> <workDir> <tablePath> --grid` draws every colorless saved photo with a 10% grid. Write a box per photo as fractions, `"Brand|CODE": [x0, y0, x1, y1]`, then run it with the boxes file to get `boxes-sheet.png`, and add `--write` once the sheet matches. It ignores pixels like the box's border, so a thin box along a skein on wood works. The 57 boxes used are in `scripts/thread-colors/marked-boxes.json`. Very pale skeins on wood still come out slightly grey.
+- **Caron:** `robots.txt` names ClaudeBot, anthropic-ai and Claude-Web under `Disallow: /`, although its general rule allows others. Check `robots.txt` before crawling a new site, and read rules by user agent, not just the `Disallow` lines.
+- **Planet Earth's site:** `www.planetearthfiber.com` fails with a security certificate error, and the name without `www` failed too.
+- **Silk & Ivory photos:** the skein sits on a grey backdrop of varying brightness, with a tag at the left. Averaging washed the colors out. The script now takes colored pixels first, then pixels clearly lighter or darker than the backdrop. Dark neutrals can still land on the backdrop, so these results are set to no color. Spot-check any new photo source against its photos.
+- **Silk & Ivory filenames:** they come in several patterns, and the number can disagree with the caption. Use the caption's `(#N)`.
+- **Zero padding and prefixes:** codes can differ between the table and saved threads, such as `02` and `2`, or Kreinik's `12/001` and `001`. See `meta.lookupNotes`.
+- **Milan numbering:** owned cards use 2xxx, while retailers also list 1xxx with the same names, such as 2561 and 1561 Crawfish. The difference isn't confirmed, so check before treating them as the same color.
+- **Very Velvet codes:** some saved Very Velvet threads use Petite numbers (V6xx), so they may be Petite Very Velvet.
+- **Not usable as a source:** `nuts-about-needlepoint.com` pages now show gambling spam.
+- **Metallics:** one flat color only approximates them.
+
+### Example pictures
+
+- The user asked for a second table of pictures and a Threads page option to show either the approximate color or an example picture. They chose small copies kept with the app over linking to the shops' sites, and later chose to commit them.
+- `scripts/thread-colors/build-pictures.mjs <savedDir> <workDir> public [marked-boxes.json]` writes a 200×200 JPEG per code to `public/thread-pictures/<brand>/<CODE>.jpg` and an index at `public/thread-pictures.json`. The user chose to keep both in git so the app can be deployed straight from the repo, knowing the repo is public and the photos belong to the shops and makers. Rebuild after adding brands or saved pages. It takes about a minute.
+- Sources: Vineyard Silk, Kreinik and Silk & Ivory from the download cache (`imgcache/`, named after each address), Flying Needles lines from the saved pages, and Essentials page 1 from `fn-images/`. Milan 2xxx reuses the 1xxx file. DMC and the Rainbow Gallery lists have no per-code photo, so they keep the approximate color. 2,586 codes, about 21 MB.
+- Source sizes limit sharpness. Kreinik serves only 100x40 strips (`product_variant/100.x`; other sizes return 403 or 404), so each strip is repeated down the square, flipping every other copy. Milan's originals are 500x334 with the skein about 40 pixels thick, and the shop has nothing larger, so the zoom stops at a 130-pixel square.
+- Crops: a hand-marked box if there is one, else the area that stands out from the border color. For a long, thin skein, five spots along it are tried and the one closest to the table color is kept, which skips labels in the middle.
+- The app loads `thread-pictures.json` beside `thread-colors.json`. Without it, the picture setting falls back to the approximate color. Cards show an "Example" badge, and the thread window shows a small copy with a note. The server now serves `.jpg`.
+
+### Adding a brand
+
+1. Check `robots.txt`, then look for a maker page with a photo per code. Retailer photos are the fallback, and whole-card photos can't be split by code.
+2. Add the source to `catalog.mjs`, then run `catalog.mjs`, `build.mjs`, `validate.mjs` and `finalize.mjs`. They're in `scripts/thread-colors/`, which git ignores, so they exist only on this machine. `build.mjs` needs `jpeg-js`, `pngjs` and `omggif` in an `imgtool` folder beside it. Downloads are cached and not kept in the repo.
+3. Look at the photo and swatch sheet from `validate.mjs`. Store only calculated colors, never the photos.
 
 ## Importing the spreadsheets
 

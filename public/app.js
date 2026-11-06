@@ -325,6 +325,78 @@
   function threadName(t) {
     return [t.brand, t.color].filter(Boolean).join(' ') || 'Untitled thread';
   }
+  // Approximate colors by brand and code, for threads with no photo. Optional: without it, cards use the family color.
+  let colorTable = null;
+  const colorKey = (code) => String(code).split('/').pop().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const stripZeros = (key) => key.replace(/^0+(?=\d)/, '');
+
+  async function loadColorTable() {
+    try {
+      const res = await fetch('thread-colors.json');
+      if (!res.ok) return;
+      const { brands } = await res.json();
+      const table = {};
+      for (const [brand, rows] of Object.entries(brands)) {
+        const index = {};
+        // Exact codes win, so add the versions without leading zeros first.
+        for (const [code, row] of Object.entries(rows)) index[stripZeros(code)] ??= row;
+        Object.assign(index, rows);
+        table[brand.toLowerCase()] = index;
+      }
+      colorTable = table;
+      if (state.tab === 'threads' && state.threads.length) renderThreads();
+    } catch (err) {
+      console.warn('Thread color table not loaded', err); // expected when opened from file://
+    }
+  }
+
+  /** The table's color for a thread, or null if the table has none. */
+  function tableColor(t) {
+    if (!colorTable || !t.brand || !t.code) return null;
+    const rows = colorTable[t.brand.trim().toLowerCase()];
+    if (!rows) return null;
+    const key = colorKey(t.code);
+    return (rows[key] || rows[stripZeros(key)])?.hex || null;
+  }
+
+  // Example pictures by brand and code, cropped from shop and maker photos. Optional and not in git:
+  // without thread-pictures.json the setting falls back to the approximate color.
+  let pictureTable = null;
+  async function loadPictureTable() {
+    try {
+      const res = await fetch('thread-pictures.json');
+      if (!res.ok) return;
+      const { brands } = await res.json();
+      const table = {};
+      for (const [brand, rows] of Object.entries(brands)) {
+        const index = {};
+        for (const [code, src] of Object.entries(rows)) index[stripZeros(code)] ??= src;
+        Object.assign(index, rows);
+        table[brand.toLowerCase()] = index;
+      }
+      pictureTable = table;
+      if (state.tab === 'threads' && state.threads.length && standIn.get() === 'picture') renderThreads();
+    } catch (err) {
+      console.warn('Thread picture table not loaded', err);
+    }
+  }
+  function tablePicture(t) {
+    if (!pictureTable || !t.brand || !t.code) return null;
+    const rows = pictureTable[t.brand.trim().toLowerCase()];
+    if (!rows) return null;
+    const key = colorKey(t.code);
+    return rows[key] || rows[stripZeros(key)] || null;
+  }
+
+  /** What threads without their own photo show: 'color' (approximate color, the default) or 'picture'. Per device. */
+  const STAND_IN_KEY = 'needlepoint-thread-stand-in';
+  const standIn = {
+    get: () => { try { return localStorage.getItem(STAND_IN_KEY) === 'picture' ? 'picture' : 'color'; } catch { return 'color'; } },
+    set: (v) => { try { localStorage.setItem(STAND_IN_KEY, v); } catch {} },
+  };
+  /** The example picture to show for a thread, if that's the chosen setting and one exists. */
+  const examplePicture = (t) => (!t.picture && standIn.get() === 'picture' ? tablePicture(t) : null);
+
   /** Lowercase text a thread search looks through. Codes also match with a "#", as labels show them. */
   function threadSearchText(t) {
     return [t.brand, t.material, t.color, t.code, t.code ? `#${t.code}` : '', ...t.lots.map((l) => l.dyeLot), t.colorFamily, t.colorFamily === 'Grey' ? 'gray' : '', sizesLabel(t)]
@@ -445,11 +517,17 @@
 
   function threadCard(t, used) {
     const sw = FAMILY_COLOR[t.colorFamily];
+    const approx = tableColor(t);
+    const example = examplePicture(t);
     const media = t.picture
       ? `<img src="${esc(t.picture)}" alt="" loading="lazy">`
-      : sw
-        ? `<div class="swatch-fill" style="--sw:${sw}"></div>`
-        : `<div class="placeholder">${icon('spool')}</div>`;
+      : example
+        ? `<img src="${esc(example)}" alt="" loading="lazy"><div class="corner"><span class="badge" title="A shop or maker photo of this brand and code. Not a photo of your thread.">Example</span></div>`
+      : approx
+        ? `<div class="swatch-fill" style="--sw:${esc(approx)}"></div><div class="corner"><span class="badge" title="Estimated from the brand and code. Not a photo of this thread.">Approx. color</span></div>`
+        : sw
+          ? `<div class="swatch-fill" style="--sw:${sw}"></div>`
+          : `<div class="placeholder">${icon('spool')}</div>`;
     const meta = [
       t.colorFamily ? `<span class="badge"><span class="dot" style="--sw:${sw}"></span>${esc(familyLabel(t.colorFamily))}</span>` : '',
       ...(t.sizes || []).map((s) => `<span class="badge">${esc(THREAD_SIZE_LABEL[s])}</span>`),
@@ -711,7 +789,11 @@
       <div class="modal-body">
         <div class="section">
           <div class="form-grid">
-            <div class="span-all" style="max-width:340px">${imageFieldHtml('picture', 'Picture')}</div>
+            <div class="span-all" style="max-width:340px">${imageFieldHtml('picture', 'Picture')}${
+              examplePicture(t)
+                ? `<p class="approx-color example-picture"><img src="${esc(examplePicture(t))}" alt="">Example picture of this brand and code, from a shop or maker photo</p>`
+                : !t.picture && tableColor(t) ? `<p class="approx-color"><span class="dot" style="--sw:${esc(tableColor(t))}"></span>Approximate color, estimated from the brand and code</p>` : ''
+            }</div>
             ${field('Brand', `<input name="brand" value="${v('brand')}" placeholder="e.g. DMC, Silk & Ivory" autocomplete="off">`)}
             ${field('Material', `<input name="material" value="${v('material')}" placeholder="e.g. Pearl cotton, wool, silk" autocomplete="off">`)}
             ${field('Color', `<input name="color" value="${v('color')}" placeholder="e.g. Christmas Red" autocomplete="off">`)}
@@ -1328,6 +1410,8 @@
 
   $('#thread-search').addEventListener('input', (e) => { state.threadQuery = e.target.value; renderThreads(); });
   $('#thread-sort').addEventListener('change', (e) => { state.threadSort = e.target.value; renderThreads(); });
+  $('#thread-stand-in').value = standIn.get();
+  $('#thread-stand-in').addEventListener('change', (e) => { standIn.set(e.target.value); renderThreads(); });
   $('#canvas-search').addEventListener('input', (e) => { state.canvasQuery = e.target.value; renderCanvases(); });
 
   function setTab(tab) {
@@ -1710,6 +1794,8 @@
 
   async function init() {
     hydrateIcons();
+    loadColorTable();
+    loadPictureTable();
     if (!SERVER) {
       if (!('indexedDB' in window)) {
         document.querySelector('main').innerHTML = '<div class="empty"><h2>Storage unavailable</h2><p>This browser does not support IndexedDB, which is needed to save your data.</p></div>';
