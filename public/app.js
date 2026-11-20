@@ -104,33 +104,163 @@
     toast.t = setTimeout(() => el.classList.remove('show'), 2400);
   }
 
-  /** Read an image file, downscale it, and return a JPEG data URL. */
-  async function imageToDataUrl(file, max = 1600) {
-    const readRaw = () =>
-      new Promise((res, rej) => {
-        const r = new FileReader();
-        r.onload = () => res(r.result);
-        r.onerror = () => rej(r.error);
-        r.readAsDataURL(file);
-      });
-    let bmp;
+  /** Read a file as-is, for formats the browser can't decode for resizing. */
+  const readFileAsDataUrl = (file) =>
+    new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(r.error);
+      r.readAsDataURL(file);
+    });
+
+  /** Decode an image file or data URL to a bitmap, or null if the browser can't. */
+  async function decodeImage(src) {
     try {
-      bmp = await createImageBitmap(file);
+      if (typeof src !== 'string') return await createImageBitmap(src);
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      return await createImageBitmap(img);
     } catch {
-      return readRaw(); // format the browser can't decode for resizing — store as-is
+      return null;
     }
-    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    const w = Math.round(bmp.width * scale);
-    const h = Math.round(bmp.height * scale);
+  }
+
+  const WHOLE = { x: 0, y: 0, w: 1, h: 1 };
+  const isWhole = (r) => r.x <= 0 && r.y <= 0 && r.w >= 1 && r.h >= 1;
+
+  /** Draw part of a bitmap (rect in fractions of its size), downscaled to at most max px, as a JPEG data URL. */
+  function bitmapToDataUrl(bmp, rect = WHOLE, max = 1600) {
+    const sx = rect.x * bmp.width, sy = rect.y * bmp.height;
+    const sw = rect.w * bmp.width, sh = rect.h * bmp.height;
+    const scale = Math.min(1, max / Math.max(sw, sh));
+    const w = Math.max(1, Math.round(sw * scale));
+    const h = Math.max(1, Math.round(sh * scale));
     const c = document.createElement('canvas');
     c.width = w;
     c.height = h;
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(bmp, 0, 0, w, h);
-    bmp.close?.();
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
     return c.toDataURL('image/jpeg', 0.86);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Photo cropping
+  // ---------------------------------------------------------------------------
+  const cropModal = $('#crop-modal');
+  const MIN_CROP = 0.04; // smallest crop, as a fraction of each side
+  const CROP_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+  /** Move the crop box ('move') or drag one of its edges or corners by dx, dy (fractions of the photo). */
+  function adjustCrop(s, h, dx, dy) {
+    if (h === 'move') return { ...s, x: clamp(s.x + dx, 0, 1 - s.w), y: clamp(s.y + dy, 0, 1 - s.h) };
+    let x0 = s.x, y0 = s.y, x1 = s.x + s.w, y1 = s.y + s.h;
+    if (h.includes('w')) x0 = clamp(x0 + dx, 0, x1 - MIN_CROP);
+    if (h.includes('e')) x1 = clamp(x1 + dx, x0 + MIN_CROP, 1);
+    if (h.includes('n')) y0 = clamp(y0 + dy, 0, y1 - MIN_CROP);
+    if (h.includes('s')) y1 = clamp(y1 + dy, y0 + MIN_CROP, 1);
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+
+  /** Let the user choose part of a photo. Resolves to a rect in fractions of the photo, or null if cancelled. */
+  function cropImage(bmp) {
+    return new Promise((resolve) => {
+      cropModal.innerHTML = `<div class="modal-form">
+        <header class="modal-head"><h2 id="crop-title">Crop photo</h2>
+          <button type="button" class="icon-btn" data-crop="cancel" aria-label="Cancel">${icon('close')}</button></header>
+        <div class="modal-body crop-body">
+          <p class="crop-hint">Drag the box to move it, or drag its edges and corners to choose what to keep.</p>
+          <div class="crop-stage"><canvas></canvas>
+            <div class="crop-shade"><div class="crop-window"></div></div>
+            <div class="crop-box" tabindex="0" role="group" aria-label="Crop area. Arrow keys move it. Shift and arrow keys resize it.">
+              ${CROP_HANDLES.map((h) => `<span class="crop-handle" data-h="${h}"></span>`).join('')}
+            </div>
+          </div>
+        </div>
+        <footer class="modal-foot">
+          <button type="button" class="btn ghost" data-crop="reset">Reset</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn ghost" data-crop="cancel">Cancel</button>
+          <button type="button" class="btn primary" data-crop="done">Use photo</button>
+        </footer></div>`;
+      const stage = $('.crop-stage', cropModal);
+      const box = $('.crop-box', cropModal);
+      const canvas = $('canvas', cropModal);
+      // The preview only needs screen resolution; the crop itself uses the full photo.
+      const scale = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+      canvas.width = Math.max(1, Math.round(bmp.width * scale));
+      canvas.height = Math.max(1, Math.round(bmp.height * scale));
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+
+      let rect = { ...WHOLE };
+      let drag = null;
+      const win = $('.crop-window', cropModal);
+      const place = () => {
+        for (const el of [box, win]) {
+          el.style.left = `${rect.x * 100}%`;
+          el.style.top = `${rect.y * 100}%`;
+          el.style.width = `${rect.w * 100}%`;
+          el.style.height = `${rect.h * 100}%`;
+        }
+      };
+      place();
+
+      box.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        drag = { h: e.target.dataset.h || 'move', px: e.clientX, py: e.clientY, start: { ...rect }, r: stage.getBoundingClientRect() };
+        box.setPointerCapture(e.pointerId);
+        box.focus({ preventScroll: true });
+      });
+      box.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        rect = adjustCrop(drag.start, drag.h, (e.clientX - drag.px) / drag.r.width, (e.clientY - drag.py) / drag.r.height);
+        place();
+      });
+      const endDrag = () => { drag = null; };
+      box.addEventListener('pointerup', endDrag);
+      box.addEventListener('pointercancel', endDrag);
+      box.addEventListener('keydown', (e) => {
+        const step = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+        if (!step) return;
+        e.preventDefault();
+        rect = adjustCrop(rect, e.shiftKey ? 'se' : 'move', step[0] * 0.02, step[1] * 0.02);
+        place();
+      });
+
+      const finish = (value) => {
+        cropModal.onclick = cropModal.oncancel = null;
+        cropModal.close();
+        cropModal.innerHTML = '';
+        resolve(value);
+      };
+      cropModal.onclick = (e) => {
+        const b = e.target.closest('[data-crop]');
+        if (!b) return;
+        if (b.dataset.crop === 'reset') { rect = { ...WHOLE }; place(); }
+        else finish(b.dataset.crop === 'done' ? rect : null);
+      };
+      cropModal.oncancel = (e) => { e.preventDefault(); finish(null); };
+      hydrateIcons(cropModal);
+      cropModal.showModal();
+      box.focus({ preventScroll: true });
+    });
+  }
+
+  /** Crop a photo already on the form. */
+  async function cropFormImage(name) {
+    const bmp = await decodeImage(form.images[name]);
+    if (!bmp) { alert('Sorry, this photo can\'t be cropped.'); return; }
+    const rect = await cropImage(bmp);
+    if (rect && !isWhole(rect)) {
+      form.images[name] = bitmapToDataUrl(bmp, rect);
+      form.dirty = true;
+      refreshImageField(name);
+    }
+    bmp.close?.();
   }
 
   // ---------------------------------------------------------------------------
@@ -685,7 +815,7 @@
       </label>
       <div class="image-actions" data-edit-only>
         <span>${value ? 'Click photo to replace' : 'Click or drop an image'}</span>
-        ${value ? `<button type="button" class="link-btn danger" data-remove-image="${name}">Remove</button>` : ''}
+        ${value ? `<span class="image-buttons"><button type="button" class="link-btn" data-crop-image="${name}">Crop</button><button type="button" class="link-btn danger" data-remove-image="${name}">Remove</button></span>` : ''}
       </div>
     </div>`;
   }
@@ -1273,6 +1403,8 @@
       form.images[t.dataset.removeImage] = null;
       form.dirty = true;
       refreshImageField(t.dataset.removeImage);
+    } else if (t.matches('[data-crop-image]')) {
+      cropFormImage(t.dataset.cropImage);
     } else if (t.matches('[data-add-row]')) {
       const kind = t.dataset.addRow;
       const rows = $(`[data-rows="${kind}"]`, modal);
@@ -1316,19 +1448,31 @@
   modal.addEventListener('change', async (e) => {
     const el = e.target;
     if (!form || el.matches('[data-thread-input]')) return;
-    form.dirty = true;
     if (el.matches('[data-image-input]')) {
       const file = el.files?.[0];
+      const name = el.dataset.imageInput;
       if (!file) return;
       if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return; }
       try {
-        form.images[el.dataset.imageInput] = await imageToDataUrl(file);
-        refreshImageField(el.dataset.imageInput);
+        const bmp = await decodeImage(file);
+        if (!bmp) {
+          form.images[name] = await readFileAsDataUrl(file); // the browser can't decode it, so it can't be resized or cropped
+        } else {
+          const rect = await cropImage(bmp);
+          if (rect) form.images[name] = bitmapToDataUrl(bmp, rect);
+          bmp.close?.();
+          if (!rect) { el.value = ''; return; } // cancelled: keep the photo that was there
+        }
+        form.dirty = true;
+        refreshImageField(name);
       } catch (err) {
         console.error(err);
         alert('Sorry, that image could not be read.');
       }
-    } else if (el.matches('input[name="status"]')) {
+      return;
+    }
+    form.dirty = true;
+    if (el.matches('input[name="status"]')) {
       const idx = STATUS_KEYS.indexOf(el.value);
       $$('.stepper .step', modal).forEach((s, i) => s.classList.toggle('done', i < idx));
       const year = $('[name="yearFinished"]', modal);

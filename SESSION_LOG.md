@@ -1,12 +1,12 @@
 # Session log
 
-Handover notes for future working sessions. Covers the build from 2026-10-31 to 2026-11-04, up to commit `0edd07a`, plus the uncommitted thread color table. For what the app does and how to run it, see `README.md`. This file records how it got here and why.
+Handover notes for future working sessions. Covers the build from 2026-10-31 to 2026-11-05, through the thread color table and example pictures in commit `1790642`. For what the app does and how to run it, see `README.md`. This file records how it got here and why.
 
 This repo has a GitHub remote, so keep personal data out of this file: no network addresses, passwords, or spreadsheet contents.
 
 ## Current state
 
-- Committed work is pushed. `public/thread-colors.json`, the app changes that read it, and this update are not committed yet.
+- The thread color table, example pictures and the app changes that read them were committed in `1790642`.
 - **Next step:** the automatic retailer collection stopped on 2026-11-05 with only Essentials page 1 collected. All nine Flying Needles lines are in the table, from pages the user saved into `scripts/thread-colors/saved-pages/`. Milan 1xxx and 2xxx differ only by package type and yardage, as the user confirmed, so the table gives each 2xxx code the same color as its 1xxx code, keeping both numbers. Merge any later pages with `merge-retailer.mjs`. See [Thread color table](#thread-color-table).
 - The user commits and pushes their own work. Only commit when asked.
 - During this session the server ran from a Claude Code background task with `ALLOW_SIGNUP=false`. Such a task ends with its session, so check whether a server is running on 5173 before starting one.
@@ -27,7 +27,7 @@ This repo has a GitHub remote, so keep personal data out of this file: no networ
 | Accounts | scrypt password hashes. Sessions are stored as sha256(token) and last 30 days, in an HttpOnly, SameSite=Lax cookie `np_session`. Login is throttled per IP, with a 15-minute window. |
 | Server storage | `DATA_DIR/users.json`, `sessions.json`, and `db/<userId>.json`, written atomically. |
 | Client storage | `dbLoad` and `dbWrite` dispatch on `useServer`: the API for accounts, IndexedDB (`idbGetAll`, `idbWrite`) for guests and `file://`. |
-| Photos | Resized to at most 1600px by `imageToDataUrl` and stored inline as data URLs. The request body limit is 100 MB. |
+| Photos | A chosen photo opens the crop dialog (`cropImage`, in `#crop-modal` above the item's dialog), starting with the whole photo selected. The crop is cut from the full-size photo, resized to at most 1600px by `bitmapToDataUrl`, and stored inline as a data URL. Cancelling keeps the previous photo. Formats the browser can't decode skip cropping and are stored as-is. The request body limit is 100 MB. |
 
 ### localStorage keys
 
@@ -91,6 +91,8 @@ Dates are commit dates. The commit column is blank for work that went into a bro
 | 11-01 | Finished canvas front and back pictures | `6b30c7b` |
 | 11-01 | README | `b333064` |
 | 11-03 | Search and new thread creation in canvas thread lists | `0edd07a` |
+| 11-05 | Approximate thread colors and example pictures for threads with no photo | `1790642` |
+| 11-20 | Crop photos when adding them, and re-crop with a **Crop** link | |
 
 The temporary `public/downloads/` page for moving import files to a phone was later deleted by the user.
 
